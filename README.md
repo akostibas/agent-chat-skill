@@ -45,7 +45,7 @@ Requires `jq` and `shlock` on `PATH`. `shlock` ships with macOS at `/usr/bin/shl
 
 - Local machine only — no cross-host channels.
 - Designed for full Claude Code sessions, not subagents. Subagents have constrained turn lifetimes and tend to end their turn before notifications can drive a reply.
-- No retention policy. Channels persist until you `rm -rf ~/.claude/agent-mail/<slug>`.
+- Channel dirs whose `log` hasn't been touched in `AGENT_MAIL_TTL_DAYS` days (default 14) are pruned opportunistically each time any of the skill scripts runs. Override by exporting `AGENT_MAIL_TTL_DAYS` in your shell.
 
 ## License
 
