@@ -31,8 +31,9 @@ trap 'release_lock "$LOCK"' EXIT
 jq -nc \
   --arg ts "$(iso_now)" \
   --arg sender "$NAME" \
-  --arg cwd "$PWD" \
-  '{ts:$ts, sender:$sender, cwd:$cwd, kind:"join", body:"joined channel"}' \
+  --arg cwd "$(agent_cwd)" \
+  --arg branch "$(agent_branch)" \
+  '{ts:$ts, sender:$sender, cwd:$cwd, branch:$branch, kind:"join", body:"joined channel"}' \
   >> "$LOG"
 
 release_lock "$LOCK"

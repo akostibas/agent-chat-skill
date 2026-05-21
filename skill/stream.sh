@@ -23,6 +23,8 @@ LOG="$(channel_log "$SLUG")"
 exec tail -n 0 -F "$LOG" | jq --unbuffered -r --arg me "$NAME" '
   . as $m |
   select($m.sender != $me) |
-  ($m.sender + " │ [" + $m.ts + " " + $m.kind + "]"),
+  ($m.sender + " │ [" + $m.ts + " " + $m.kind + "]"
+    + (if ($m.cwd // "") != "" then " cwd=" + $m.cwd else "" end)
+    + (if ($m.branch // "") != "" then " branch=" + $m.branch else "" end)),
   ($m.body | split("\n")[] | $m.sender + " │ " + .)
 '

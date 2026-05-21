@@ -33,9 +33,10 @@ trap 'release_lock "$LOCK"' EXIT
 jq -nc \
   --arg ts "$(iso_now)" \
   --arg sender "$NAME" \
-  --arg cwd "$PWD" \
+  --arg cwd "$(agent_cwd)" \
+  --arg branch "$(agent_branch)" \
   --arg body "$BODY" \
-  '{ts:$ts, sender:$sender, cwd:$cwd, kind:"msg", body:$body}' \
+  '{ts:$ts, sender:$sender, cwd:$cwd, branch:$branch, kind:"msg", body:$body}' \
   >> "$LOG"
 
 release_lock "$LOCK"

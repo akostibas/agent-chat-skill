@@ -22,10 +22,10 @@ LOG="$(channel_log "$SLUG")"
 
 if [[ -n "$SINCE" ]]; then
   jq -rc --arg since "$SINCE" \
-    'select(.ts >= $since) | "━━━ \(.ts) \(.sender) (cwd=\(.cwd)) [\(.kind)] ━━━\n\(.body)\n"' \
+    'select(.ts >= $since) | "━━━ \(.ts) \(.sender) (cwd=\(.cwd)\(if (.branch // "") != "" then " branch=\(.branch)" else "" end)) [\(.kind)] ━━━\n\(.body)\n"' \
     "$LOG"
 else
   jq -rc \
-    '"━━━ \(.ts) \(.sender) (cwd=\(.cwd)) [\(.kind)] ━━━\n\(.body)\n"' \
+    '"━━━ \(.ts) \(.sender) (cwd=\(.cwd)\(if (.branch // "") != "" then " branch=\(.branch)" else "" end)) [\(.kind)] ━━━\n\(.body)\n"' \
     "$LOG"
 fi

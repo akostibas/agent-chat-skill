@@ -41,3 +41,14 @@ release_lock() {
 }
 
 iso_now() { date -u +"%Y-%m-%dT%H:%M:%SZ"; }
+
+# Worktree-aware path: git's toplevel resolves to the worktree dir, not the
+# main repo. Falls back to $PWD outside a git checkout.
+agent_cwd() {
+  git rev-parse --show-toplevel 2>/dev/null || echo "$PWD"
+}
+
+# Current branch (empty string on detached HEAD or non-git dir).
+agent_branch() {
+  git symbolic-ref --short -q HEAD 2>/dev/null || echo ""
+}
