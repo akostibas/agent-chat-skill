@@ -1,22 +1,22 @@
 #!/bin/bash
-# Shared helpers for agent-mail scripts. Source, don't execute.
+# Shared helpers for agent-chat scripts. Source, don't execute.
 
 set -euo pipefail
 
-AGENT_MAIL_ROOT="${AGENT_MAIL_ROOT:-$HOME/.claude/agent-mail}"
-AGENT_MAIL_TTL_DAYS="${AGENT_MAIL_TTL_DAYS:-14}"
+AGENT_CHAT_ROOT="${AGENT_CHAT_ROOT:-$HOME/.claude/agent-chat}"
+AGENT_CHAT_TTL_DAYS="${AGENT_CHAT_TTL_DAYS:-14}"
 IDENT_RE='^[a-zA-Z0-9_-]{1,40}$'
 
-die() { echo "agent-mail: $*" >&2; exit 1; }
+die() { echo "agent-chat: $*" >&2; exit 1; }
 
 validate_ident() {
   local kind="$1" value="$2"
   [[ "$value" =~ $IDENT_RE ]] || die "invalid $kind '$value' (must match $IDENT_RE)"
 }
 
-channel_dir() { echo "$AGENT_MAIL_ROOT/$1"; }
-channel_log() { echo "$AGENT_MAIL_ROOT/$1/log"; }
-channel_lock() { echo "$AGENT_MAIL_ROOT/$1/log.lock"; }
+channel_dir() { echo "$AGENT_CHAT_ROOT/$1"; }
+channel_log() { echo "$AGENT_CHAT_ROOT/$1/log"; }
+channel_lock() { echo "$AGENT_CHAT_ROOT/$1/log.lock"; }
 
 ensure_channel() {
   local slug="$1"
@@ -55,12 +55,12 @@ agent_branch() {
 }
 
 # Delete channel directories whose log hasn't been touched in
-# $AGENT_MAIL_TTL_DAYS days. Silent; failures are non-fatal so a stale
+# $AGENT_CHAT_TTL_DAYS days. Silent; failures are non-fatal so a stale
 # permissions issue can't break send/join.
 sweep_old_channels() {
-  [[ -d "$AGENT_MAIL_ROOT" ]] || return 0
-  find "$AGENT_MAIL_ROOT" -mindepth 2 -maxdepth 2 -name log \
-    -mtime "+${AGENT_MAIL_TTL_DAYS}" -print 2>/dev/null \
+  [[ -d "$AGENT_CHAT_ROOT" ]] || return 0
+  find "$AGENT_CHAT_ROOT" -mindepth 2 -maxdepth 2 -name log \
+    -mtime "+${AGENT_CHAT_TTL_DAYS}" -print 2>/dev/null \
     | while IFS= read -r old_log; do
         rm -rf "$(dirname "$old_log")" 2>/dev/null || true
       done
