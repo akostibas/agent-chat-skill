@@ -16,11 +16,13 @@ See `skill/SKILL.md` for the full instructions Claude follows.
 
 ## Install
 
+From a local clone:
+
 ```sh
-mkdir -p ~/.claude/skills/agent-chat
-cp skill/* ~/.claude/skills/agent-chat/
-chmod +x ~/.claude/skills/agent-chat/*.sh
+make install
 ```
+
+This copies `skill/` to `~/.claude/skills/agent-chat/` and marks the scripts executable. Override the destination with `SKILL_DIR=...`.
 
 Then add these entries to the `permissions.allow` array in `~/.claude/settings.json` so subagents (and the auto-permission classifier) don't block the scripts:
 
