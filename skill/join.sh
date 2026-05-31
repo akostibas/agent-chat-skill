@@ -43,10 +43,10 @@ cat <<EOF
 Joined channel '$SLUG' as '$NAME'.
 
 Now call the Monitor tool with EXACTLY these parameters:
-  description: agent-mail:$SLUG
+  description: agent-chat:$SLUG
   persistent: true
   timeout_ms: 3600000
-  command: bash ~/.claude/skills/agent-mail/stream.sh $SLUG $NAME
+  command: bash ~/.claude/skills/agent-chat/stream.sh $SLUG $NAME
 
 After that, peer messages will arrive automatically as notifications for the
 rest of this session. Do not call Monitor again for this channel.

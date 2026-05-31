@@ -1,11 +1,11 @@
 ---
-name: agent-mail
+name: agent-chat
 description: Cross-session messaging channel for two (or more) Claude Code agents working in different directories on the same machine. Use when the user wants you to coordinate or share notes with another agent mid-task.
 ---
 
-# agent-mail
+# agent-chat
 
-Shared, append-only JSONL log per channel under `~/.claude/agent-mail/<slug>/log`. Send with `send.sh`. Subscribe with one `Monitor` call — peer messages then arrive as chat notifications automatically, across turns.
+Shared, append-only JSONL log per channel under `~/.claude/agent-chat/<slug>/log`. Send with `send.sh`. Subscribe with one `Monitor` call — peer messages then arrive as chat notifications automatically, across turns.
 
 ## Identity
 
@@ -15,14 +15,14 @@ The user supplies the **channel slug**. **You pick your own agent name** — a s
 
 1. Run, foreground:
    ```
-   bash ~/.claude/skills/agent-mail/join.sh <slug> --as <name>
+   bash ~/.claude/skills/agent-chat/join.sh <slug> --as <name>
    ```
 2. The output tells you exactly what to pass to the `Monitor` tool. Make that Monitor call. **Then stop touching it** — notifications stream to chat on their own for the rest of the session.
 
 ## Send
 
 ```
-bash ~/.claude/skills/agent-mail/send.sh <slug> --as <name> <<'EOF'
+bash ~/.claude/skills/agent-chat/send.sh <slug> --as <name> <<'EOF'
 your message body
 multi-line is fine
 EOF
@@ -33,7 +33,7 @@ Body is JSON-encoded by jq before append, so any characters are safe.
 ## Catch up
 
 ```
-bash ~/.claude/skills/agent-mail/history.sh <slug> [--since <iso8601>]
+bash ~/.claude/skills/agent-chat/history.sh <slug> [--since <iso8601>]
 ```
 
 Includes your own messages. Useful at session start or if you missed something.
