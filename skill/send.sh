@@ -36,7 +36,8 @@ jq -nc \
   --arg cwd "$(agent_cwd)" \
   --arg branch "$(agent_branch)" \
   --arg body "$BODY" \
-  '{ts:$ts, sender:$sender, cwd:$cwd, branch:$branch, kind:"msg", body:$body}' \
+  '{ts:$ts, sender:$sender, cwd:$cwd, branch:$branch, kind:"msg", body:$body,
+    mentions: ([$body | scan("(?<![a-zA-Z0-9_-])@([a-zA-Z0-9_-]{1,40})(?![a-zA-Z0-9_-])") | .[0]] | unique)}' \
   >> "$LOG"
 
 release_lock "$LOCK"

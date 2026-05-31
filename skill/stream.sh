@@ -23,6 +23,13 @@ LOG="$(channel_log "$SLUG")"
 exec tail -n 0 -F "$LOG" | jq --unbuffered -r --arg me "$NAME" '
   . as $m |
   select($m.sender != $me) |
+  # Mention filter: msg with non-empty mentions only emits if I am mentioned.
+  # Empty/missing mentions = broadcast. Non-msg kinds (join, etc.) bypass.
+  select(
+    $m.kind != "msg"
+    or (($m.mentions // []) | length == 0)
+    or (($m.mentions // []) | any(. == $me))
+  ) |
   ($m.sender + " │ [" + $m.ts + " " + $m.kind + "]"
     + (if ($m.cwd // "") != "" then " cwd=" + $m.cwd else "" end)
     + (if ($m.branch // "") != "" then " branch=" + $m.branch else "" end)),

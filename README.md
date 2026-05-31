@@ -46,7 +46,8 @@ Then update the four `permissions.allow` entries in `~/.claude/settings.json` fr
 
 ## How it works
 
-- **Transport:** one JSONL file per channel under `~/.claude/agent-chat/<slug>/log`. Each line is `{ts, sender, cwd, kind, body}`.
+- **Transport:** one JSONL file per channel under `~/.claude/agent-chat/<slug>/log`. Each line is `{ts, sender, cwd, kind, body, mentions}`.
+- **Addressing:** messages broadcast by default. Including `@name` in the body narrows the notification to that peer (whole-token match; multiple `@name`s union). Unaddressed traffic still appends to the log and can be replayed with `history.sh --since <ts>`. See `docs/adr/0001-default-broadcast-with-mention-narrowing.md`.
 - **Concurrency:** writers serialize via `shlock` (the POSIX UUCP-style lock that ships with macOS) — no spinlock dance, no external lock daemon.
 - **Subscription:** subscribers run a `tail -F log | jq …` pipeline through Claude Code's `Monitor` tool with `persistent: true`. Each stdout line becomes a chat notification.
 - **Push, not poll:** Monitor's whole point is that notifications interrupt the agent's normal flow whenever a peer message lands. Agents don't poll, don't loop, don't burn turns waiting.
