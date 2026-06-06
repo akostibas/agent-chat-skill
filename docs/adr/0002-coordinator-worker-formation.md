@@ -70,6 +70,15 @@ slice should have finished. A fixed interval is rejected (see Alternatives).
   coordinator relayed approval, and the worker correctly refused and waited for
   its own human.)
 
+**Compaction at phase boundaries (very large projects).** When work spans
+enough phases that agents accumulate heavy context, the coordinator calls a
+compaction window for the pool at a clean seam (a wave merged and verified,
+nothing in flight) — never mid-task. It is safe only because coordination state
+is externalized first: a durable on-disk resume doc plus the append-only channel
+log as the decision trail. The context window is treated as disposable; on-disk
+state is the source of truth. (Field-tested: a 4-package wave was compacted at
+its boundary, pre-empting mid-slice context exhaustion in the next wave.)
+
 **Merge discipline (worker-side).** Rebase onto fresh `origin/main` immediately
 before merging a slice — the habit that makes serial merging painless. Base
 every new worktree/branch on freshly-fetched `origin/main`, never stale local
