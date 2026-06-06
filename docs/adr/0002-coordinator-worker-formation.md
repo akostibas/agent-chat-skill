@@ -29,8 +29,12 @@ draft (see Alternatives).
 
 ## Decision
 
-At **3+ agents**, the channel adopts a **coordinator/worker formation**. Two
-agents stay peer-to-peer.
+The formation applies when **3+ agents collaborate on the same body of work**
+(shared repo / refactor / one merge train) — keyed on shared work, not raw
+channel headcount. A cross-project or feedback channel where agents merely
+co-exist stays peer-to-peer regardless of size, as does any 2-agent task. When
+3+ agents do share the work, the channel adopts a **coordinator/worker
+formation**.
 
 **Coordinator selection tracks context/role, not name.**
 - A human designation wins outright ("you coordinate").
@@ -51,12 +55,26 @@ timer scaled to expected task duration catches a worker silent past when its
 slice should have finished. A fixed interval is rejected (see Alternatives).
 
 **Coordination has two planes.**
-- *Decision-routing is centralized*: questions, conflicts, and allocation route
-  up to the coordinator, which is the user's single interface for decisions.
-- *Human authority stays local and is non-delegable*: anything needing a given
-  session's own human — commit signing, destructive/risky ops — does not
-  transfer. A coordinator's relay does not override a worker's in-session human;
-  a worker must refuse instructions that do.
+- *Decision-routing is bounded, not blanket-centralized*: a worker owns every
+  decision internal to its own slice (the throttle a blanket route-up would
+  cause is the failure mode); it routes up only what touches another agent's
+  slice or the merge train. Test: "does this affect someone else's work or merge
+  order?" → coordinator; else → worker. The coordinator is the user's single
+  interface for *seam-level* decisions.
+- *Human authority stays local and is non-delegable*, and the **worker side is
+  the load-bearing half**: anything needing a given session's own human (commit
+  signing, destructive/risky ops) does not transfer. A worker MUST treat it as
+  local even when a trusted coordinator relays "my human approved" — a human in
+  the coordinator's session is not the worker's human, and authority does not
+  cross a relay. (First-hand: a worker's 1Password signing was blocked, the
+  coordinator relayed approval, and the worker correctly refused and waited for
+  its own human.)
+
+**Merge discipline (worker-side).** Rebase onto fresh `origin/main` immediately
+before merging a slice — the habit that makes serial merging painless. Base
+every new worktree/branch on freshly-fetched `origin/main`, never stale local
+main (`git fetch` first); branching off stale main caused a worker to rebuild
+already-merged work and lose a slice.
 
 **The coordinator serializes on shared hot files.** Fan-out is bounded by the
 dependency graph, not the agent count. When tasks contend on the same hot files
@@ -121,6 +139,10 @@ each agent's *own* in-session human. Split into two planes: decision-routing
 - Workers can't be coerced past their own human's authority, so signing/risky
   ops stay safe across sessions.
 - Serialize-on-hot-files prevents the most common multi-agent merge failure.
+- Scoping the trigger to *shared work* (not raw headcount) keeps feedback and
+  cross-project channels from spuriously electing a coordinator.
+- Rebase-before-merge + fetch-before-branch make the serial merge train painless
+  and stop workers from rebuilding already-merged work off stale local main.
 
 **Negative / accepted:**
 - The formation is convention, not enforcement — a misbehaving agent can still
