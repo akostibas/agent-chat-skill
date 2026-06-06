@@ -50,6 +50,14 @@ bash ~/.claude/skills/agent-chat/history.sh <slug> [--since <iso8601>]
 
 Includes your own messages. Useful at session start or if you missed something.
 
+## Leaving
+
+You don't need to announce departure — your `Monitor` subscription emits a
+`leave` event automatically when the session ends (or the monitor is stopped),
+so peers see a `[leave]` notification. Best-effort only: a hard kill (`SIGKILL`)
+can't be trapped and leaves silently, so don't rely on a leave event always
+arriving for a peer.
+
 ## Formation
 
 Formation applies when **3+ agents are collaborating on the same body of work** — a shared repo, a refactor, one merge train. It is keyed on shared work, *not* raw headcount: a cross-project or feedback channel where agents happen to co-exist stays peer-to-peer no matter how many join. Two agents on one task also stay peer-to-peer. When 3+ agents *do* share the work, adopt a coordinator/worker formation so decisions don't get negotiated N-way.
@@ -60,17 +68,17 @@ Coordinator tracks **context and role, not name** — the right coordinator is w
 
 1. **Human designation wins.** If a user appoints a coordinator ("you coordinate this"), that's settled — announce it to the channel and skip the rest.
 2. **No designation? Most-context volunteers.** The agent with the broadest view of the work broadcasts `I'm coordinating this channel` and surfaces the role to its user. If you clearly have less context than a peer, defer.
-3. **Deterministic tiebreak, last resort only.** If two agents would both reasonably claim it, the lexicographically smallest name (tiebreak: earliest join, visible in `history.sh`) breaks the tie — purely to stop N-way circling, *not* because the smallest name is the best brain.
+3. **Deterministic tiebreak, last resort only.** If two agents would both reasonably claim it, the lexicographically smallest name wins — purely to stop N-way circling, *not* because the smallest name is the best brain.
 4. If someone else claims it, `@them` a one-line ack. Object only with cause.
 
-Either way, **tell your user** the channel now has a coordinator and who it is.
+**Tell your user** the channel now has a coordinator and who it is.
 
 ### If you are the coordinator
 
-- **Drop the work queue as the pool grows.** Hands-on work is fine at low agent count; once the pool is large enough that allocation + merge-coordination is a full-time job, hand your task to a worker and go pure-coordinator. Concretely: with **3+ other agents** refuse implementation tasks; with **2** it's a judgment call (take one only if it won't starve coordination).
+- **Drop the work queue as the pool grows.** Hands-on work is fine at low agent count; once allocation + merge-coordination is a full-time job, hand your task to a worker and go pure-coordinator. With **3+ other agents** refuse implementation tasks; with **2** it's a judgment call (take one only if it won't starve coordination).
 - **Gate on events, not a clock.** Hang detection is primarily *event-driven*: workers announce state transitions (`READY`, `blocked`, `done`) and you gate merges on those — the cadence is task completion, not a timer. Keep a **backstop timer scaled to expected task duration** (via `loop`/`schedule`): if a worker is silent well past when its slice should have finished, `@name` it; still nothing → flag to your user. A fixed hour is usually both too coarse for fast slices and pointless when READY pings already arrive first.
 - **Serialize on shared hot files.** Parallelism is bounded by the dependency graph, not the agent count. When several workers' tasks edit the same hot files (a shared registry, a core module, a root alias surface), serialize them into a merge train instead of assuming N agents = N parallel lanes — concurrent edits to the same files guarantee conflicts. Detect the contention and allocate around it.
-- **You are the user's single interface for decisions** — allocation, conflicts, and questions route to you, and you decide what reaches the user. *But see the worker note below: this covers decision-routing, not human authority.*
+- **You are the user's single interface for decisions** — allocation, conflicts, and questions route to you, and you decide what reaches the user. This is decision-routing only; human authority does not route through you (see the worker rules).
 
 ### If you are a worker
 
