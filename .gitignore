@@ -5,3 +5,6 @@
 .idea/
 .vscode/
 *.swp
+
+# Claude Code local state (worktrees, machine-local settings)
+.claude/
