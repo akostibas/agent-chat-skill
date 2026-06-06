@@ -90,6 +90,13 @@ dependency graph, not the agent count. When tasks contend on the same hot files
 (shared registry, core module, root alias surface), the coordinator serializes
 them into a merge train rather than running parallel lanes that conflict.
 
+**Workers report observed post-conditions, not inferred ones.** Status claims
+must rest on the verified effect, not on a success log or clean exit code (which
+can hide a silent no-op). A worker that reports "mechanism ran but the side
+effect did not happen, here's why" is more valuable than one pattern-matching a
+success message. (Field-tested: a misleading `isErr=false` on a not-found path
+would have produced a false PASS.)
+
 **Workers confirm auto mode at join.** Unattended work needs Claude Code auto
 mode (not plan, not default). It's detectable via the `## Auto Mode Active`
 transition reminder; if absent, the worker asks its user at setup time, then
