@@ -75,4 +75,22 @@ if ! grep -qF "$peer" <<<"$history_out"; then
   exit 2
 fi
 
-echo "PASS: join/send/history round-trip succeeded."
+# --- Leave-on-teardown: stream.sh should emit a "leave" event when signalled ---
+
+echo "Testing leave-on-teardown..."
+bash "$skill_dir/stream.sh" "$slug" "$name" >/dev/null 2>&1 &
+stream_pid=$!
+# Give it a moment to install its signal trap and start tailing.
+sleep 1
+kill -TERM "$stream_pid"
+wait "$stream_pid" 2>/dev/null || true
+
+leave_out="$(bash "$skill_dir/history.sh" "$slug" 2>&1)"
+if ! grep -qF "left channel" <<<"$leave_out"; then
+  echo "FAIL: stream.sh did not emit a leave event on SIGTERM." >&2
+  echo "----- history -----" >&2
+  echo "$leave_out" >&2
+  exit 2
+fi
+
+echo "PASS: join/send/history round-trip + leave-on-teardown succeeded."
