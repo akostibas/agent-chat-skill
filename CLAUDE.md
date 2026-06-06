@@ -30,8 +30,12 @@ minor.
 - **major** — breaking changes to script names/flags, log line format, the
   on-disk channel layout, or the `Monitor` invocation contract.
 
+Before cutting a release, add a `## vX.Y.Z` section to `CHANGELOG.md` with a
+bullet list of new features / bug fixes — `bin/release.sh` uses that section
+verbatim as the GitHub release body.
+
 Cut releases with `bin/release.sh <version|patch|minor|major>`. It refuses on
-a dirty tree, wrong branch, out-of-sync `main`, an existing tag, or a failing
-smoke test, then tags, pushes, and creates a GitHub release. Never tag by
-hand — the script is the gate that guarantees the smoke test passed against
-the published commit.
+a dirty tree, wrong branch, out-of-sync `main`, an existing tag, a missing
+`CHANGELOG.md` section, or a failing smoke test, then tags, pushes, and creates
+a GitHub release from the changelog notes. Never tag by hand — the script is
+the gate that guarantees the smoke test passed against the published commit.

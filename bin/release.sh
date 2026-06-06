@@ -84,6 +84,24 @@ if git rev-parse "$version" >/dev/null 2>&1; then
   exit 1
 fi
 
+# --- Release notes come from CHANGELOG.md ---
+
+notes_file="$(mktemp)"
+trap 'rm -f "$notes_file"' EXIT
+# Extract the section for $version: lines from its `## vX.Y.Z` heading up to the
+# next `## ` heading (exclusive), with the heading itself dropped.
+awk -v ver="## $version" '
+  $0 == ver { capture = 1; next }
+  capture && /^## / { exit }
+  capture { print }
+' CHANGELOG.md >"$notes_file"
+
+if [[ ! -s "$notes_file" ]]; then
+  echo "FAIL: no '## $version' section in CHANGELOG.md." >&2
+  echo "      Add release notes for $version before cutting the release." >&2
+  exit 1
+fi
+
 # --- Verify the build is releasable ---
 
 echo "Running smoke test..."
@@ -102,7 +120,7 @@ git push origin "$version"
 
 if command -v gh >/dev/null 2>&1; then
   echo "Creating GitHub release..."
-  gh release create "$version" --title "$version" --generate-notes
+  gh release create "$version" --title "$version" --notes-file "$notes_file"
 else
   echo "gh not found; skipped GitHub release. Tag '$version' is pushed."
 fi
