@@ -1,18 +1,20 @@
 # agent-chat
 
-A [Claude Code](https://docs.claude.com/en/docs/claude-code/overview) skill that lets two (or more) Claude Code sessions running on the same machine exchange notes mid-task. Useful when you have one agent iterating on a frontend while another works on the backend it talks to, or two agents on different worktrees of the same repo who need to flag bugs to each other.
+A [Claude Code](https://docs.claude.com/en/docs/claude-code/overview) skill that lets two (or more) Claude Code sessions running on the same machine exchange notes mid-task. It's like Slack, for Claudes.
 
-Each channel is a per-user append-only JSONL log under `~/.claude/agent-chat/<slug>/log`. Agents subscribe via Claude Code's `Monitor` tool tailing the log through a small `jq` filter — peer messages arrive in chat as notifications automatically, with no polling.
+## When it's useful
 
-## Use
+- One agent iterating on a frontend while another works on the backend it calls — they flag contract changes to each other as they happen.
+- Two agents on different worktrees of the same repo, reporting bugs and merge conflicts across the fence.
+- A coordinator agent fanning work out to several worker agents and collecting results on one channel.
 
-In each Claude Code session, tell Claude:
+## Features
 
-> Join agent-chat on channel `<slug>`.
-
-Claude will pick a name describing what it's working on, and join a "chat room". Other Claude sessions may join and send messages to the channel. Messages arrive to Claude agents in the channel as notifications automatically. It's like Slack, for Claudes!
-
-See `skill/SKILL.md` for the full instructions Claude follows.
+- **Push, not poll** — peer messages arrive in chat as notifications automatically. Agents don't loop or burn turns waiting.
+- **Broadcast by default, `@name` to narrow** — everyone on the channel sees a message unless you address it to specific peers.
+- **Spoof-proof** — every message is prefixed with its true sender, so one agent can't impersonate another.
+- **Zero infrastructure** — pure shell over a per-user JSONL log. No daemon, no network, no binary to build.
+- **Self-cleaning** — idle channels are pruned automatically.
 
 ## Install
 
@@ -46,14 +48,15 @@ mv ~/.claude/agent-mail ~/.claude/agent-chat 2>/dev/null || true
 
 Then update the four `permissions.allow` entries in `~/.claude/settings.json` from `agent-mail` to `agent-chat`.
 
-## How it works
+## Use
 
-- **Transport:** one JSONL file per channel under `~/.claude/agent-chat/<slug>/log`. Each line is `{ts, sender, cwd, kind, body, mentions}`.
-- **Addressing:** messages broadcast by default. Including `@name` in the body narrows the notification to that peer (whole-token match; multiple `@name`s union). Unaddressed traffic still appends to the log and can be replayed with `history.sh --since <ts>`. See `docs/adr/0001-default-broadcast-with-mention-narrowing.md`.
-- **Concurrency:** writers serialize via `shlock` (the POSIX UUCP-style lock that ships with macOS) — no spinlock dance, no external lock daemon.
-- **Subscription:** subscribers run a `tail -F log | jq …` pipeline through Claude Code's `Monitor` tool with `persistent: true`. Each stdout line becomes a chat notification.
-- **Push, not poll:** Monitor's whole point is that notifications interrupt the agent's normal flow whenever a peer message lands. Agents don't poll, don't loop, don't burn turns waiting.
-- **Spoofing prevention:** every notification line is prefixed with the sender field read from the JSON record (`<sender> │ <text>`). A message body that embeds a fake `[othername] …` header renders with the *true* sender's prefix, so impersonation is structurally impossible.
+In each Claude Code session, tell Claude:
+
+> Join agent-chat on channel `<slug>`.
+
+Claude will pick a name describing what it's working on, and join a "chat room". Other Claude sessions may join and send messages to the channel. Messages arrive to Claude agents in the channel as notifications automatically.
+
+See `skill/SKILL.md` for the full instructions Claude follows.
 
 ## Limitations
 
