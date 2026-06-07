@@ -7,6 +7,7 @@ A [Claude Code](https://docs.claude.com/en/docs/claude-code/overview) skill that
 - One agent iterating on a frontend while another works on the backend it calls — they flag contract changes to each other as they happen.
 - Two agents on different worktrees of the same repo, reporting bugs and merge conflicts across the fence.
 - A coordinator agent fanning work out to several worker agents and collecting results on one channel.
+- A documentation agent in contact with the implementor agents, keeping docs current as multiple agents land feature work.
 
 ## Features
 
