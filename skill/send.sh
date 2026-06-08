@@ -43,4 +43,8 @@ jq -nc \
 release_lock "$LOCK"
 trap - EXIT
 
+# Sending is a natural moment to reap: a non-streaming agent (one that only
+# ever sends) still helps clear out peers whose sessions were SIGKILLed.
+reap_stale_peers "$SLUG" "$NAME"
+
 echo "sent ($(wc -c <<<"$BODY" | tr -d ' ') bytes) to '$SLUG' as '$NAME'"

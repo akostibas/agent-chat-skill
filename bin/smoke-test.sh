@@ -93,4 +93,42 @@ if ! grep -qF "left channel" <<<"$leave_out"; then
   exit 2
 fi
 
-echo "PASS: join/send/history round-trip + leave-on-teardown succeeded."
+# --- Stale-peer reaping: a live agent posts a leave for a peer that was hard-
+# killed (no graceful trap), detected via its aged-out presence file. ---
+
+echo "Testing stale-peer reaping..."
+presence_dir="$HOME/.claude/agent-chat/$slug/presence"
+mkdir -p "$presence_dir"
+ghost="smoke-ghost"
+# Plant a presence file and backdate it well past the staleness window.
+# `touch -t` reads its stamp in LOCAL time, so compute the stamp in local time
+# too (no -u) or the backdate can land in the future on a non-UTC machine.
+touch "$presence_dir/$ghost"
+stale_ts="$(date -v-10M +%Y%m%d%H%M 2>/dev/null || date -d '10 minutes ago' +%Y%m%d%H%M)"
+touch -t "$stale_ts" "$presence_dir/$ghost"
+
+# A send by a live agent triggers a reap of the stale ghost.
+bash "$skill_dir/send.sh" "$slug" --as "$name" <<<"trigger reap" >/dev/null
+
+reap_out="$(bash "$skill_dir/history.sh" "$slug" 2>&1)"
+if ! grep -qF "$ghost" <<<"$reap_out" || ! grep -qF "timed out" <<<"$reap_out"; then
+  echo "FAIL: stale peer '$ghost' was not reaped with a leave event." >&2
+  echo "----- history -----" >&2
+  echo "$reap_out" >&2
+  exit 2
+fi
+if [[ -e "$presence_dir/$ghost" ]]; then
+  echo "FAIL: reaped peer's presence file was not removed." >&2
+  exit 2
+fi
+
+# Reaping must be one-shot: a second send must not post a duplicate leave.
+before="$(grep -cF "$ghost" <<<"$reap_out")"
+bash "$skill_dir/send.sh" "$slug" --as "$name" <<<"second trigger" >/dev/null
+after="$(bash "$skill_dir/history.sh" "$slug" 2>&1 | grep -cF "$ghost")"
+if [[ "$before" != "$after" ]]; then
+  echo "FAIL: stale peer reaped more than once ($before -> $after leave lines)." >&2
+  exit 2
+fi
+
+echo "PASS: join/send/history round-trip + leave-on-teardown + stale-peer reaping succeeded."

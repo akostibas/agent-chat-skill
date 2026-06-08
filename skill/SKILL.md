@@ -52,11 +52,21 @@ Includes your own messages. Useful at session start or if you missed something.
 
 ## Leaving
 
-You don't need to announce departure — your `Monitor` subscription emits a
-`leave` event automatically when the session ends (or the monitor is stopped),
-so peers see a `[leave]` notification. Best-effort only: a hard kill (`SIGKILL`)
-can't be trapped and leaves silently, so don't rely on a leave event always
-arriving for a peer.
+You don't need to announce departure — peers see a `[leave]` notification
+automatically when your session ends. Two mechanisms back this (see
+`docs/adr/0003-presence-heartbeat-for-departure.md`):
+
+- **Graceful stop** (the monitor is told to stop): your stream posts its own
+  `leave` immediately.
+- **Hard kill** (session close `SIGKILL`s the stream, which can't be trapped):
+  your stream keeps a heartbeat file alive while running; once it goes stale, a
+  peer still on the channel posts the `leave` for you — typically within
+  `AGENT_CHAT_STALE_SECS` (default 45s).
+
+The one case with no sign-off is being hard-killed when **no** peer is currently
+streaming — there's no one present to notice. The next agent to join clears the
+stale entry. So treat a `leave` as reliable when anyone is listening, but don't
+assume it's instant.
 
 ## Formation
 

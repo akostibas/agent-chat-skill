@@ -4,6 +4,31 @@ Release notes for agent-chat. Each release gets a `## vMAJOR.MINOR.PATCH`
 section; `bin/release.sh` uses the matching section as the GitHub release body,
 so **add the new section before cutting a release**.
 
+## v0.2.0
+
+### Fixes
+
+- **Reliable departure events.** A `leave` is now posted even when a session is
+  hard-killed. Claude Code's `Monitor` `SIGKILL`s the stream child on session
+  close, so the old `INT/TERM/HUP` trap never fired on the common teardown path.
+  Streaming agents now heartbeat a presence file; a surviving peer reaps any
+  agent whose heartbeat goes stale and posts the `leave` on its behalf. The
+  graceful-signal trap is kept as a fast path. See
+  `docs/adr/0003-presence-heartbeat-for-departure.md`.
+
+### Features
+
+- New `AGENT_CHAT_HEARTBEAT_SECS` (default 15) and `AGENT_CHAT_STALE_SECS`
+  (default 45) tune the liveness/reaping windows.
+- `bin/teardown-probe.sh` — a diagnostic harness for observing how `Monitor`
+  tears down a persistent child.
+
+### Notes
+
+- Adds a `presence/` subdir to each channel directory. Additive and
+  backward-compatible: an agent running the old scripts simply doesn't heartbeat
+  and is never reaped (degrades to the prior no-sign-off behavior).
+
 ## v0.1.0
 
 First tagged release of **agent-chat** — a Claude Code skill for letting two or

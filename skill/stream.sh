@@ -4,9 +4,13 @@
 # one line per text line with the verified sender prefixed.
 # First line of each message includes the timestamp + kind.
 #
-# On teardown (session close, TaskStop) it emits a best-effort "leave" event
-# so peers learn this agent is gone — the mirror of join.sh's "join". This only
-# fires for trappable signals; a hard SIGKILL leaves no trace.
+# Departure is announced two ways (see ADR-0003):
+#   1. Graceful path — a trap on INT/TERM/HUP emits a "leave" immediately.
+#   2. Hard path — Claude Code's Monitor SIGKILLs this child on session close,
+#      so no trap can fire. Instead we heartbeat a presence file; a surviving
+#      peer's reaper notices it go stale and emits the leave on our behalf.
+# Both paths are idempotent: exactly one leave is posted per departure, because
+# a graceful exit removes the presence file so no peer re-reaps it.
 
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -20,27 +24,43 @@ validate_ident slug "$SLUG"
 validate_ident name "$NAME"
 
 LOG="$(channel_log "$SLUG")"
-LOCK="$(channel_lock "$SLUG")"
+PRESENCE="$(presence_file "$SLUG" "$NAME")"
 [[ -f "$LOG" ]] || die "no such channel: $SLUG (run join.sh first)"
 
-# Announce departure once, best-effort. Never block or fail shutdown: short
-# lock timeout, all errors swallowed. Broadcast (no mentions) so every peer
-# is notified.
+# Announce our own departure once, best-effort. Never block or fail shutdown:
+# short lock timeout, all errors swallowed. Broadcast (no mentions) so every
+# peer is notified. Removing the presence file is what guarantees a peer's
+# reaper won't post a second, redundant leave for us.
 LEFT=0
 emit_leave() {
   [[ "$LEFT" -eq 1 ]] && return 0
   LEFT=1
-  (
-    acquire_lock "$LOCK" 2
-    jq -nc \
-      --arg ts "$(iso_now)" \
-      --arg sender "$NAME" \
-      '{ts:$ts, sender:$sender, kind:"leave", body:"left channel"}' \
-      >> "$LOG"
-    release_lock "$LOCK"
-  ) 2>/dev/null || true
+  emit_leave_event "$SLUG" "$NAME"
 }
-trap 'emit_leave; exit 0' INT TERM HUP
+
+# Idempotent teardown: announce, drop our presence, stop the children.
+HEARTBEAT_PID=""
+cleanup() {
+  emit_leave
+  rm -f "$PRESENCE" 2>/dev/null || true
+  if [[ -n "$HEARTBEAT_PID" ]]; then kill "$HEARTBEAT_PID" 2>/dev/null || true; fi
+  if [[ -n "${STREAM_PID:-}" ]]; then kill "$STREAM_PID" 2>/dev/null || true; fi
+}
+trap cleanup EXIT
+trap 'cleanup; exit 0' INT TERM HUP
+
+# Heartbeat: refresh our presence and reap any vanished peers on each tick.
+# This is the engine behind the hard-kill path — it's how *this* agent posts
+# leaves for peers that were SIGKILLed, and how peers will post ours.
+touch_presence "$SLUG" "$NAME"
+(
+  while true; do
+    touch_presence "$SLUG" "$NAME"
+    reap_stale_peers "$SLUG" "$NAME"
+    sleep "$AGENT_CHAT_HEARTBEAT_SECS"
+  done
+) &
+HEARTBEAT_PID=$!
 
 # Stream in the background and `wait`, so a teardown signal interrupts the wait
 # and the trap runs. `exec`-ing the pipeline would replace this shell and the
