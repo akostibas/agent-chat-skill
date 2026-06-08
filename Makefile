@@ -7,7 +7,8 @@ install:
 	mkdir -p "$(SKILL_DIR)"
 	cp -R skill/. "$(SKILL_DIR)/"
 	chmod +x "$(SKILL_DIR)"/*.sh
-	@echo "Installed skill -> $(SKILL_DIR)"
+	@printf '%s\n' "$$(git describe --tags --always --dirty 2>/dev/null || echo dev)" > "$(SKILL_DIR)/VERSION"
+	@echo "Installed skill -> $(SKILL_DIR) ($$(cat "$(SKILL_DIR)/VERSION"))"
 
 test:
 	bin/smoke-test.sh

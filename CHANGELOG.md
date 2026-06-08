@@ -4,6 +4,24 @@ Release notes for agent-chat. Each release gets a `## vMAJOR.MINOR.PATCH`
 section; `bin/release.sh` uses the matching section as the GitHub release body,
 so **add the new section before cutting a release**.
 
+## v0.3.0
+
+### Features
+
+- **Self-update.** New `skill/update.sh` upgrades the installed skill in place:
+  it resolves its own install dir (so it works for both `~/.claude` and
+  project-level `.claude` installs), clones the latest GitHub release tag into
+  `$TMPDIR`, runs `make install` against that dir, and removes the checkout. No
+  files are written outside the system temp dir. Run it bare to see a
+  `current → latest` plan and confirm, or `--yes` to apply unattended.
+- **Update nudge.** `_common.sh` now does a throttled, best-effort check (at
+  most once per `AGENT_CHAT_UPDATE_TTL_SECS`, default 24h) comparing the
+  installed version against the latest release tag, printing a one-line stderr
+  hint when behind. It never auto-applies, and never breaks send/join/stream on
+  network failure. Opt out with `AGENT_CHAT_NO_UPDATE_CHECK=1`.
+- `make install` now writes a `VERSION` file (from `git describe --tags`) next
+  to the scripts, which is the version source both mechanisms read.
+
 ## v0.2.2
 
 ### Fixes

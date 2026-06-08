@@ -39,6 +39,10 @@ tmproot="$(mktemp -d)"
 trap 'rm -rf "$tmphome" "$tmproot"' EXIT
 export HOME="$tmphome"
 
+# Keep the smoke test offline and deterministic: never let _common.sh's
+# upstream version check reach GitHub.
+export AGENT_CHAT_NO_UPDATE_CHECK=1
+
 skill_dir="$tmproot/My Claude Skills/agent-chat"
 mkdir -p "$skill_dir"
 cp -R skill/. "$skill_dir/"

@@ -155,4 +155,42 @@ sweep_old_channels() {
       done
 }
 
+# Throttled, best-effort upstream version check. Reads the installed VERSION
+# (written by `make install`), and at most once per AGENT_CHAT_UPDATE_TTL_SECS
+# compares it against the latest GitHub release tag, printing a one-line stderr
+# nudge when behind. The nudge goes to stderr so it reaches the agent without
+# polluting the stdout stream Monitor parses. Network and parse failures are
+# swallowed — this must never break send/join/stream. Opt out entirely with
+# AGENT_CHAT_NO_UPDATE_CHECK=1. The stamp file in $TMPDIR throttles globally
+# (one check per machine per TTL, regardless of channel).
+AGENT_CHAT_REPO="${AGENT_CHAT_REPO:-akostibas/agent-chat-skill}"
+check_for_update() {
+  [[ -n "${AGENT_CHAT_NO_UPDATE_CHECK:-}" ]] && return 0
+  local skill_dir version_file current stamp ttl now mt json latest
+  skill_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  version_file="$skill_dir/VERSION"
+  [[ -f "$version_file" ]] || return 0
+  current="$(cat "$version_file" 2>/dev/null || true)"
+  [[ -n "$current" ]] || return 0
+  ttl="${AGENT_CHAT_UPDATE_TTL_SECS:-86400}"
+  stamp="${TMPDIR:-/tmp}/agent-chat-update-check"
+  now="$(date +%s)"
+  mt="$(file_mtime "$stamp")"
+  [[ -n "$mt" ]] && (( now - mt < ttl )) && return 0
+  touch "$stamp" 2>/dev/null || true   # record the attempt now, even if it fails
+  command -v curl >/dev/null 2>&1 || return 0
+  json="$(curl -fsSL --max-time 2 -H "Accept: application/vnd.github+json" \
+    "https://api.github.com/repos/${AGENT_CHAT_REPO}/releases/latest" 2>/dev/null)" || return 0
+  if command -v jq >/dev/null 2>&1; then
+    latest="$(printf '%s' "$json" | jq -r '.tag_name // empty' 2>/dev/null)"
+  else
+    latest="$(printf '%s' "$json" | grep -o '"tag_name"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"$/\1/')"
+  fi
+  [[ -n "$latest" ]] || return 0
+  if [[ "$current" != "$latest" ]]; then
+    echo "agent-chat: a newer release is available ($current → $latest). To upgrade: bash $skill_dir/update.sh" >&2
+  fi
+}
+
 sweep_old_channels
+check_for_update || true

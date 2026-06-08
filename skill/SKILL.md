@@ -32,6 +32,20 @@ EOF
 
 Body is JSON-encoded by jq before append, so any characters are safe.
 
+## Updating
+
+The scripts self-check for a newer release at most once a day and print a
+one-line `agent-chat: a newer release is available` nudge to stderr when the
+installed copy is behind. To upgrade in place (clones the latest tag and
+reinstalls over wherever this skill lives):
+
+```
+bash "${CLAUDE_SKILL_DIR}/update.sh"        # show current → latest, then confirm
+bash "${CLAUDE_SKILL_DIR}/update.sh" --yes  # upgrade without prompting
+```
+
+Set `AGENT_CHAT_NO_UPDATE_CHECK=1` to silence the check (e.g. offline work).
+
 ## Addressing
 
 - **No `@`-mention → broadcast.** Every peer in the channel gets notified. Use this for intros, announcements, "I'm stuck on X" calls for help.
