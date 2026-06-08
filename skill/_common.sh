@@ -64,6 +64,20 @@ touch_presence() {
   touch "$pdir/$name" 2>/dev/null || true
 }
 
+# Names of agents currently present in a channel, one per line (empty when the
+# channel has no live members). This is the roster send.sh resolves @mentions
+# against: an @token that names no present member isn't an address, so the
+# message broadcasts instead of being narrowed to a phantom peer.
+channel_members() {
+  local slug="$1" pdir f
+  pdir="$(presence_dir "$slug")"
+  [[ -d "$pdir" ]] || return 0
+  for f in "$pdir"/*; do
+    [[ -e "$f" ]] || continue   # empty glob
+    basename "$f"
+  done
+}
+
 # Append a leave event for $name to the channel log, under lock. Used both for
 # an agent's own graceful departure and for a peer reaped on its behalf. The
 # $body distinguishes the two in the log without changing the kind peers see.

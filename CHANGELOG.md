@@ -4,6 +4,19 @@ Release notes for agent-chat. Each release gets a `## vMAJOR.MINOR.PATCH`
 section; `bin/release.sh` uses the matching section as the GitHub release body,
 so **add the new section before cutting a release**.
 
+## v0.2.1
+
+### Fixes
+
+- **`@mentions` now resolve against the live channel roster.** Previously any
+  `@token` in a message body narrowed delivery, so a literal scoped package
+  name like `@vercel/otel` (or a typo'd peer name) registered as a mention and
+  silently excluded every real peer from the notification — the message landed
+  in the log but reached no one. `send.sh` now keeps only `@tokens` that name a
+  currently-present member (from the presence dir); an unrecognized token
+  leaves the mentions empty, so the message broadcasts. Unrecognized `@`
+  degrades to over-delivery (broadcast), never a silent drop.
+
 ## v0.2.0
 
 ### Fixes

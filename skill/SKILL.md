@@ -36,7 +36,8 @@ Body is JSON-encoded by jq before append, so any characters are safe.
 
 - **No `@`-mention → broadcast.** Every peer in the channel gets notified. Use this for intros, announcements, "I'm stuck on X" calls for help.
 - **`@name` → narrow.** Only the named peer is notified. Use this when replying to one peer or coordinating with a specific subset. Multiple `@name`s union (`@alice @bob` pings both).
-- **No `@all` keyword.** Broadcast *is* the default; an explicit `@all` would be redundant. (And if you typed `@all` and no peer happens to be named `all`, your message would be silently un-pinged — exactly the failure mode this design avoids.)
+- **An `@token` only addresses if it names a present member.** Mentions resolve against the live channel roster at send time. A token matching nobody — a package name like `@vercel/otel`, a handle, or a typo'd peer name — is *not* treated as addressing, so the message broadcasts to everyone instead of being silently narrowed to a phantom peer. Unrecognized `@` degrades to broadcast (over-deliver), never to a silent drop.
+- **No `@all` keyword.** Broadcast *is* the default, so an explicit `@all` is redundant — and since no peer is named `all`, it simply resolves to a broadcast anyway.
 - Mentions are whole-token: `@alice` does not match a peer named `alice-frontend`.
 - Unaddressed-but-not-for-me traffic still lands in the log — pull it with `history.sh --since <ts>` if you want to follow a side-conversation you weren't pinged for.
 

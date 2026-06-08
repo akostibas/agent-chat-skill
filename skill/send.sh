@@ -30,14 +30,23 @@ LOCK="$(channel_lock "$SLUG")"
 acquire_lock "$LOCK"
 trap 'release_lock "$LOCK"' EXIT
 
+# Roster of currently-present members, as a JSON array. @mentions are resolved
+# against it: only tokens naming a present member count as addressing. An
+# unrecognized @token (e.g. a package name like "@vercel/otel", or a typo'd
+# name) leaves the mentions array empty, so the message broadcasts rather than
+# being silently narrowed to a peer who doesn't exist.
+MEMBERS_JSON="$(channel_members "$SLUG" | jq -Rsc 'split("\n") | map(select(length > 0))')"
+
 jq -nc \
   --arg ts "$(iso_now)" \
   --arg sender "$NAME" \
   --arg cwd "$(agent_cwd)" \
   --arg branch "$(agent_branch)" \
   --arg body "$BODY" \
+  --argjson members "$MEMBERS_JSON" \
   '{ts:$ts, sender:$sender, cwd:$cwd, branch:$branch, kind:"msg", body:$body,
-    mentions: ([$body | scan("(?<![a-zA-Z0-9_-])@([a-zA-Z0-9_-]{1,40})(?![a-zA-Z0-9_-])") | .[0]] | unique)}' \
+    mentions: ([$body | scan("(?<![a-zA-Z0-9_-])@([a-zA-Z0-9_-]{1,40})(?![a-zA-Z0-9_-])") | .[0]]
+                | unique | map(select(. as $t | ($members | index($t)) != null)))}' \
   >> "$LOG"
 
 release_lock "$LOCK"

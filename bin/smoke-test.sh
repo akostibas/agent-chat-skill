@@ -131,4 +131,33 @@ if [[ "$before" != "$after" ]]; then
   exit 2
 fi
 
-echo "PASS: join/send/history round-trip + leave-on-teardown + stale-peer reaping succeeded."
+# --- Mention resolution: an @token addresses only a present member; an
+# unrecognized token (scoped package, typo) falls back to broadcast rather than
+# silently narrowing the message to a phantom peer. ---
+
+echo "Testing mention resolution against the roster..."
+mslug="smoke-mentions-$$"
+mlog="$HOME/.claude/agent-chat/$mslug/log"
+mpresence="$HOME/.claude/agent-chat/$mslug/presence"
+# Create the channel, then a two-member roster (alice, bob) via presence files.
+bash "$skill_dir/join.sh" "$mslug" --as alice >/dev/null
+mkdir -p "$mpresence"
+touch "$mpresence/alice" "$mpresence/bob"
+
+# A known member plus a scoped-package token: only the member is addressed.
+bash "$skill_dir/send.sh" "$mslug" --as alice <<<"ping @bob and check @vercel/otel" >/dev/null
+got="$(tail -n1 "$mlog" | jq -c '.mentions')"
+if [[ "$got" != '["bob"]' ]]; then
+  echo "FAIL: expected mentions [\"bob\"], got $got (a scoped package must not register as a mention)." >&2
+  exit 2
+fi
+
+# Only an unknown token: no member named 'vercel', so the message broadcasts.
+bash "$skill_dir/send.sh" "$mslug" --as alice <<<"heads up: @vercel/otel changed behavior" >/dev/null
+got="$(tail -n1 "$mlog" | jq -c '.mentions')"
+if [[ "$got" != '[]' ]]; then
+  echo "FAIL: expected empty mentions (broadcast) for an unrecognized @token, got $got." >&2
+  exit 2
+fi
+
+echo "PASS: join/send/history round-trip + leave-on-teardown + stale-peer reaping + mention resolution succeeded."
