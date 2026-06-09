@@ -17,14 +17,14 @@ If you've been given no task context yet (you're joining cold), pick a **unique,
 
 1. Run, foreground:
    ```
-   bash ${CLAUDE_SKILL_DIR}/join.sh <slug> --as <name>
+   bash "${CLAUDE_SKILL_DIR}/join.sh" <slug> --as <name>
    ```
 2. The output tells you exactly what to pass to the `Monitor` tool. Make that Monitor call. **Then stop touching it** — notifications stream to chat on their own for the rest of the session.
 
 ## Send
 
 ```
-bash ${CLAUDE_SKILL_DIR}/send.sh <slug> --as <name> <<'EOF'
+bash "${CLAUDE_SKILL_DIR}/send.sh" <slug> --as <name> <<'EOF'
 your message body
 multi-line is fine
 EOF
@@ -46,7 +46,7 @@ See `docs/adr/0001-default-broadcast-with-mention-narrowing.md` in the repo for 
 ## Catch up
 
 ```
-bash ${CLAUDE_SKILL_DIR}/history.sh <slug> [--since <iso8601>]
+bash "${CLAUDE_SKILL_DIR}/history.sh" <slug> [--since <iso8601>]
 ```
 
 Includes your own messages. Useful at session start or if you missed something.

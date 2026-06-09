@@ -49,8 +49,8 @@ join_out="$(bash "$skill_dir/join.sh" "$slug" --as "$name" 2>&1)"
 # The Monitor command must point at THIS install's stream.sh by its resolved
 # absolute path — not a hardcoded ~/.claude path — so project-level installs
 # stream from their own copy.
-if ! grep -qF "bash $skill_dir/stream.sh" <<<"$join_out"; then
-  echo "FAIL: join.sh Monitor command did not reference $skill_dir/stream.sh." >&2
+if ! grep -qF "bash \"$skill_dir/stream.sh\"" <<<"$join_out"; then
+  echo "FAIL: join.sh Monitor command did not reference \"$skill_dir/stream.sh\" (quoted)." >&2
   echo "----- output -----" >&2
   echo "$join_out" >&2
   exit 2
