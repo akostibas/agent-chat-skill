@@ -26,12 +26,20 @@ for cmd in jq shlock; do
 done
 
 # --- Install into an isolated HOME ---
+#
+# Deliberately install OUTSIDE $HOME and under a path containing a space. This
+# makes every assertion below run through a relocated install: it proves the
+# scripts self-resolve their own dir (BASH_SOURCE) from any location, and that
+# a spaced install path (realistic for a project install like
+# "~/My Projects/...") doesn't break the printed Monitor command. Channel state
+# still lives under $HOME, which the state-separation check below verifies.
 
 tmphome="$(mktemp -d)"
-trap 'rm -rf "$tmphome"' EXIT
+tmproot="$(mktemp -d)"
+trap 'rm -rf "$tmphome" "$tmproot"' EXIT
 export HOME="$tmphome"
 
-skill_dir="$HOME/.claude/skills/agent-chat"
+skill_dir="$tmproot/My Claude Skills/agent-chat"
 mkdir -p "$skill_dir"
 cp -R skill/. "$skill_dir/"
 chmod +x "$skill_dir"/*.sh
@@ -75,6 +83,21 @@ if ! grep -qF "$peer" <<<"$history_out"; then
   echo "FAIL: history.sh did not record the sender." >&2
   echo "----- history -----" >&2
   echo "$history_out" >&2
+  exit 2
+fi
+
+# --- Relocatability: a non-$HOME, spaced install still puts channel state under
+# $HOME (shared rendezvous), never beside the scripts. The round-trip above
+# already proved the scripts RUN from $skill_dir; here we prove the split. ---
+
+echo "Verifying state lands under \$HOME, not the install dir..."
+if [[ ! -f "$HOME/.claude/agent-chat/$slug/log" ]]; then
+  echo "FAIL: channel log is not under \$HOME/.claude/agent-chat/$slug/." >&2
+  exit 2
+fi
+if find "$tmproot" -name log -type f 2>/dev/null | grep -q .; then
+  echo "FAIL: channel state leaked into the install tree ($tmproot)." >&2
+  find "$tmproot" -name log -type f >&2
   exit 2
 fi
 
@@ -163,4 +186,4 @@ if [[ "$got" != '[]' ]]; then
   exit 2
 fi
 
-echo "PASS: join/send/history round-trip + leave-on-teardown + stale-peer reaping + mention resolution succeeded."
+echo "PASS: relocated/spaced install + join/send/history round-trip + leave-on-teardown + stale-peer reaping + mention resolution succeeded."
