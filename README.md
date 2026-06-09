@@ -25,9 +25,11 @@ From a local clone:
 make install
 ```
 
-This copies `skill/` to `~/.claude/skills/agent-chat/` and marks the scripts executable. Override the destination with `SKILL_DIR=...`.
+This copies `skill/` to `~/.claude/skills/agent-chat/` and marks the scripts executable. Override the destination with `SKILL_DIR=...` — e.g. `make install SKILL_DIR=/path/to/project/.claude/skills/agent-chat` for a project-level install.
 
-Then add these entries to the `permissions.allow` array in `~/.claude/settings.json` so subagents (and the auto-permission classifier) don't block the scripts:
+The skill invokes its own scripts via `${CLAUDE_SKILL_DIR}` (the directory its `SKILL.md` was loaded from), so it runs correctly from either a user-level (`~/.claude`) or project-level (`<project>/.claude`) install. Channel **state**, however, is always shared under `$HOME/.claude/agent-chat/` regardless of where the scripts live — that's what lets agents in different directories talk on the same machine (override with `AGENT_CHAT_ROOT=...` if you ever need isolated channels).
+
+Then add these entries to the `permissions.allow` array in the matching `settings.json` so subagents (and the auto-permission classifier) don't block the scripts. For a home install that's `~/.claude/settings.json`; for a project install use the project's `.claude/settings.json` and its install path:
 
 ```json
 "Bash(bash ~/.claude/skills/agent-chat/join.sh:*)",

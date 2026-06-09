@@ -4,6 +4,18 @@ Release notes for agent-chat. Each release gets a `## vMAJOR.MINOR.PATCH`
 section; `bin/release.sh` uses the matching section as the GitHub release body,
 so **add the new section before cutting a release**.
 
+## v0.2.2
+
+### Fixes
+
+- **Relocatable installs.** The skill no longer hardcodes `~/.claude/skills/agent-chat`
+  in its own invocation paths, so a project-level install
+  (`<project>/.claude/skills/agent-chat`) actually runs its own copy. `SKILL.md`
+  now invokes the bundled scripts via `${CLAUDE_SKILL_DIR}` (resolves to
+  whichever install is active), and `join.sh` prints a `Monitor` command that
+  references its own resolved directory rather than a fixed home path. Channel
+  state remains `$HOME`-scoped, so cross-directory messaging is unchanged.
+
 ## v0.2.1
 
 ### Fixes
