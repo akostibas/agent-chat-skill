@@ -16,7 +16,7 @@ func TestExtractMentions(t *testing.T) {
 		want []string
 	}{
 		{"hello @alice", []string{"alice"}},
-		{"@bob and @alice", []string{"bob", "alice"}},
+		{"@bob and @alice", []string{"alice", "bob"}}, // sorted, matching jq unique
 		// scoped package: @vercel/otel → extracts "vercel" (slash stops scan)
 		{"check @vercel/otel please", []string{"vercel"}},
 		// no preceding space, but preceded by a non-ident: punctuation

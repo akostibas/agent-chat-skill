@@ -22,7 +22,7 @@ func cmdJoin(args []string) {
 	c := newChannel(slug)
 	sweepOldChannels(c.root)
 	if d := selfDir(); d != "" {
-		go checkForUpdate(d)
+		checkForUpdate(d)
 	}
 
 	if err := c.ensureDir(); err != nil {

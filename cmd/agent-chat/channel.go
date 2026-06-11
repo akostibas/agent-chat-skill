@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -254,6 +255,8 @@ func extractMentions(body string) []string {
 			mentions = append(mentions, token)
 		}
 	}
+	// Sort to match jq `unique` behavior in the shell version (schema compat).
+	sort.Strings(mentions)
 	return mentions
 }
 

@@ -23,7 +23,7 @@ func cmdSend(args []string) {
 
 	c := newChannel(slug)
 	if d := selfDir(); d != "" {
-		go checkForUpdate(d)
+		checkForUpdate(d)
 	}
 
 	if err := c.ensureDir(); err != nil {
