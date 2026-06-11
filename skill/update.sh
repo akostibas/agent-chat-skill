@@ -15,7 +15,7 @@
 #      dir, runs `make install SKILL_DIR=<here>`, then removes the checkout.
 #
 # No files are written outside the system temp dir; the checkout is removed on
-# exit. Requires git and curl (this skill is pure shell — no build toolchain).
+# exit. Requires git, curl, and go (to build the agent-chat binary).
 #
 # Usage:
 #   update.sh            # show the plan (current → latest), confirm if a TTY
@@ -37,7 +37,8 @@ die() { echo "${SKILL_NAME} update: $*" >&2; exit 1; }
 # part-way through (git is needed to clone, curl to reach the API).
 need() { command -v "$1" >/dev/null 2>&1 || die "$1 not found — $2"; }
 need curl "install curl and retry"
-need git "install git and retry"
+need git  "install git and retry"
+need go   "install Go (https://go.dev/dl/) and retry"
 
 assume_yes=false
 [[ "${1:-}" == "--yes" || "${1:-}" == "-y" ]] && assume_yes=true
