@@ -4,6 +4,32 @@ Release notes for agent-chat. Each release gets a `## vMAJOR.MINOR.PATCH`
 section; `bin/release.sh` uses the matching section as the GitHub release body,
 so **add the new section before cutting a release**.
 
+## v0.4.0
+
+### Breaking changes
+
+- **Requires Go to build.** `make install` now compiles a Go binary
+  (`agent-chat`). The `go` toolchain must be on `PATH`. `shlock` and `jq` are no
+  longer required at runtime.
+
+### Features
+
+- **Single Go binary replaces shell scripts.** `agent-chat join`, `send`,
+  `history`, and `stream` subcommands replace `join.sh`, `send.sh`,
+  `history.sh`, and `stream.sh`. Shell shims (`*.sh`) stay for this release as
+  thin `exec` wrappers — existing agents and Monitor commands continue to work
+  without change (COMPAT: shims will be removed in v0.5.x).
+- **`flock(2)` replaces `shlock`.** Kernel-managed exclusive locking; locks are
+  released automatically on process death. No more stale lock files.
+- **Native JSON.** `encoding/json` replaces `jq` subprocesses for all
+  serialisation and parsing.
+- **Unit test suite.** `go test ./cmd/agent-chat/` covers lock contention, reap
+  idempotency, mention extraction, roster filtering, record schema, and presence
+  lifecycle. Run with `make unit`; the full `make test` runs unit then smoke.
+- **Cross-platform.** `flock(2)` and Go stdlib work on macOS and Linux. The
+  `stat`/`date` portability forks in `_common.sh` are gone.
+- ADR-0004 documents the port decision and its tradeoffs.
+
 ## v0.3.0
 
 ### Features

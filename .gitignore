@@ -8,3 +8,4 @@
 
 # Claude Code local state (worktrees, machine-local settings)
 .claude/
+cmd/agent-chat/agent-chat
