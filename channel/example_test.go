@@ -14,7 +14,7 @@ import (
 // would run.
 func Example() {
 	root, _ := os.MkdirTemp("", "agent-chat-example")
-	defer os.RemoveAll(root)
+	defer func() { _ = os.RemoveAll(root) }()
 
 	c, err := channel.Open(root, "demo")
 	if err != nil {

@@ -293,14 +293,14 @@ func TestRecordJSONSchema(t *testing.T) {
 		t.Fatal(err)
 	}
 	var m map[string]any
-	json.Unmarshal(b, &m)
+	_ = json.Unmarshal(b, &m)
 	if _, ok := m["mentions"]; ok {
 		t.Errorf("expected mentions key absent when empty, got: %s", b)
 	}
 	r.Mentions = []string{"bob"}
 	b2, _ := json.Marshal(r)
 	var m2 map[string]any
-	json.Unmarshal(b2, &m2)
+	_ = json.Unmarshal(b2, &m2)
 	if _, ok := m2["mentions"]; !ok {
 		t.Error("expected mentions key present when non-empty")
 	}
@@ -359,7 +359,7 @@ func TestReapStalePeers(t *testing.T) {
 	_ = os.MkdirAll(presDir, 0755)
 	ghost := filepath.Join(presDir, "ghost")
 	if f, err := os.Create(ghost); err == nil {
-		f.Close()
+		_ = f.Close()
 	}
 	stale := time.Now().Add(-10 * time.Minute)
 	_ = os.Chtimes(ghost, stale, stale)

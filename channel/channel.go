@@ -127,12 +127,12 @@ func (c *Channel) acquireLock(ctx context.Context) (*os.File, error) {
 			return f, nil
 		}
 		if err != syscall.EWOULDBLOCK {
-			f.Close()
+			_ = f.Close()
 			return nil, fmt.Errorf("flock: %w", err)
 		}
 		select {
 		case <-ctx.Done():
-			f.Close()
+			_ = f.Close()
 			return nil, fmt.Errorf("acquire lock: %w", ctx.Err())
 		case <-time.After(50 * time.Millisecond):
 		}
@@ -141,17 +141,22 @@ func (c *Channel) acquireLock(ctx context.Context) (*os.File, error) {
 
 func releaseLock(f *os.File) {
 	_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
-	f.Close()
+	_ = f.Close()
 }
 
 // appendLocked writes r as a JSON line to the log. The caller must already
 // hold the lock.
-func (c *Channel) appendLocked(r Record) error {
+func (c *Channel) appendLocked(r Record) (err error) {
 	f, err := os.OpenFile(c.logPath(), os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	// On a write, a Close error can mean the line wasn't flushed — surface it.
+	defer func() {
+		if cerr := f.Close(); err == nil {
+			err = cerr
+		}
+	}()
 	enc := json.NewEncoder(f)
 	enc.SetEscapeHTML(false)
 	return enc.Encode(r)
@@ -185,7 +190,7 @@ func (c *Channel) Read() ([]Record, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	var records []Record
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 1024*1024), 1024*1024)
@@ -226,7 +231,7 @@ func (c *Channel) ReadSince(ctx context.Context, cur Cursor) ([]Record, Cursor, 
 	if err != nil {
 		return nil, cur, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	info, err := f.Stat()
 	if err != nil {
