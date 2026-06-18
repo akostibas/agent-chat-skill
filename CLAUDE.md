@@ -1,16 +1,24 @@
 # agent-chat
 
 A Claude Code skill that lets two (or more) Claude Code sessions on the same
-machine exchange notes mid-task. Pure shell — no binary to build.
+machine exchange notes mid-task. A single Go binary (stdlib only) backs the
+skill; the shell files in `skill/` are thin shims that exec it.
 
 ## Layout
 
-- `skill/` — the skill itself: `SKILL.md` plus `join.sh`, `send.sh`,
-  `history.sh`, `stream.sh`, and the shared `_common.sh`.
+- `channel/` — the importable core: the `Record` schema, flock protocol,
+  presence, mention resolution, and the byte-offset cursor. A **supported,
+  SemVer-governed** Go package (`github.com/akostibas/agent-chat-skill/channel`)
+  that external Go peers import; the CLI is a thin layer over it. See ADR-0005.
+- `cmd/agent-chat/` — the CLI (`join`/`send`/`history`/`stream`) over the
+  package, plus CLI-only concerns (arg parsing, git cwd/branch, channel sweep,
+  update nudge, output formatting).
+- `skill/` — the skill itself: `SKILL.md` plus the `join.sh`/`send.sh`/
+  `history.sh`/`stream.sh` shims that exec the binary.
 - `bin/` — workflow scripts (`smoke-test.sh`, `release.sh`).
-- `Makefile` — `install` (copies `skill/` to `~/.claude/skills/agent-chat/`
-  and marks the scripts executable), `test` (runs the smoke test). Override
-  the destination with `SKILL_DIR=...`.
+- `Makefile` — `build`, `install` (copies `skill/` + the built binary to
+  `~/.claude/skills/agent-chat/`), `unit` (`go test -race ./...`), `test`
+  (unit + smoke). Override the destination with `SKILL_DIR=...`.
 - `docs/adr/` — architectural decision records.
 
 ## Testing

@@ -1,0 +1,117 @@
+package channel
+
+import (
+	"context"
+	"os"
+	"time"
+)
+
+// Members returns the names of all peers with a presence file. A peer becomes a
+// member by calling TouchPresence and stops being one when its file is removed
+// (RemovePresence on a clean leave, or ReapStale after it goes stale).
+func (c *Channel) Members() []string {
+	entries, err := os.ReadDir(c.presDir())
+	if err != nil {
+		return nil
+	}
+	var names []string
+	for _, e := range entries {
+		if !e.IsDir() {
+			names = append(names, e.Name())
+		}
+	}
+	return names
+}
+
+// TouchPresence refreshes this peer's heartbeat file, creating it on first
+// call. The caller must invoke it on its own cadence — there is no background
+// heartbeat — at an interval shorter than AGENT_CHAT_STALE_SECS, or peers will
+// reap it as departed.
+func (c *Channel) TouchPresence(name string) error {
+	if err := os.MkdirAll(c.presDir(), 0755); err != nil {
+		return err
+	}
+	pf := c.presFile(name)
+	now := time.Now()
+	if os.Chtimes(pf, now, now) != nil {
+		f, err := os.OpenFile(pf, os.O_CREATE|os.O_RDWR, 0644)
+		if err != nil {
+			return err
+		}
+		return f.Close()
+	}
+	return nil
+}
+
+// RemovePresence deletes this peer's presence file. Call it alongside Leave on
+// a clean shutdown so the peer is not later re-announced as a timed-out
+// departure.
+func (c *Channel) RemovePresence(name string) error {
+	err := os.Remove(c.presFile(name))
+	if os.IsNotExist(err) {
+		return nil
+	}
+	return err
+}
+
+// Leave posts a leave record for name under lock. Use it to announce a clean
+// departure; pair it with RemovePresence.
+func (c *Channel) Leave(name, body string) error {
+	return c.Append(context.Background(), Record{
+		Sender: name,
+		Kind:   "leave",
+		Body:   body,
+	})
+}
+
+// ReapStale posts a leave on behalf of any peer (other than me) whose heartbeat
+// is older than AGENT_CHAT_STALE_SECS, and removes its presence file. The reap
+// is claimed under lock by deleting the presence file before posting, so
+// concurrent reapers across processes cannot double-post. Best-effort: errors
+// are swallowed.
+func (c *Channel) ReapStale(me string) {
+	staleSecs := envInt("AGENT_CHAT_STALE_SECS", defaultStaleSecs)
+	entries, err := os.ReadDir(c.presDir())
+	if err != nil {
+		return
+	}
+	now := time.Now()
+	for _, e := range entries {
+		name := e.Name()
+		if name == me {
+			continue
+		}
+		pf := c.presFile(name)
+		info, err := os.Stat(pf)
+		if err != nil || now.Sub(info.ModTime()) <= time.Duration(staleSecs)*time.Second {
+			continue
+		}
+		// Claim the reap under lock.
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		lockF, err := c.acquireLock(ctx)
+		if err != nil {
+			cancel()
+			continue
+		}
+		func() {
+			defer releaseLock(lockF)
+			info2, err := os.Stat(pf)
+			if err != nil {
+				return // already reaped
+			}
+			if now.Sub(info2.ModTime()) <= time.Duration(staleSecs)*time.Second {
+				return // peer refreshed
+			}
+			if os.Remove(pf) != nil {
+				return // another reaper claimed it
+			}
+			_ = c.appendLocked(Record{
+				Ts:     isoNow(),
+				Sender: name,
+				Kind:   "leave",
+				Body:   "left channel (timed out)",
+			})
+		}()
+		cancel()
+	}
+}

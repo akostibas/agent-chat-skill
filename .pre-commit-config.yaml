@@ -15,3 +15,20 @@ repos:
     rev: v8.30.1
     hooks:
       - id: gitleaks
+
+  # Go linting. Local hooks call the installed toolchain — the repo already
+  # requires Go to build, so this adds no new dependency. gofmt enforces
+  # formatting; golangci-lint runs vet + staticcheck + errcheck + unused.
+  - repo: local
+    hooks:
+      - id: gofmt
+        name: gofmt
+        entry: gofmt -l -w
+        language: system
+        types: [go]
+      - id: golangci-lint
+        name: golangci-lint
+        entry: golangci-lint run
+        language: system
+        types: [go]
+        pass_filenames: false

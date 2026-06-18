@@ -1,17 +1,17 @@
 package main
 
 import (
-	"bufio"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"os/signal"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/akostibas/agent-chat-skill/channel"
 )
 
 func cmdStream(args []string) {
@@ -24,8 +24,8 @@ func cmdStream(args []string) {
 	validateIdent("slug", slug)
 	validateIdent("name", name)
 
-	c := newChannel(slug)
-	if _, err := os.Stat(c.logPath()); os.IsNotExist(err) {
+	c := openChannel(slug)
+	if !c.Exists() {
 		fmt.Fprintf(os.Stderr, "agent-chat: no such channel: %s (run join first)\n", slug)
 		os.Exit(1)
 	}
@@ -37,12 +37,12 @@ func cmdStream(args []string) {
 	var leaveOnce sync.Once
 	emitLeave := func() {
 		leaveOnce.Do(func() {
-			c.emitLeaveEvent(name, "left channel")
+			_ = c.Leave(name, "left channel")
 		})
 	}
 	defer func() {
 		emitLeave()
-		c.removePresence(name)
+		_ = c.RemovePresence(name)
 	}()
 
 	// Intercept SIGINT/SIGTERM/SIGHUP so we announce departure before exit.
@@ -51,14 +51,14 @@ func cmdStream(args []string) {
 	go func() {
 		<-sigs
 		emitLeave()
-		c.removePresence(name)
+		_ = c.RemovePresence(name)
 		cancel()
 		os.Exit(0)
 	}()
 
 	// Heartbeat: refresh presence and reap stale peers on each tick.
 	heartbeatSecs := envInt("AGENT_CHAT_HEARTBEAT_SECS", defaultHeartbeatSecs)
-	c.touchPresence(name)
+	_ = c.TouchPresence(name)
 	go func() {
 		ticker := time.NewTicker(time.Duration(heartbeatSecs) * time.Second)
 		defer ticker.Stop()
@@ -67,32 +67,27 @@ func cmdStream(args []string) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				c.touchPresence(name)
-				c.reapStalePeers(name)
+				_ = c.TouchPresence(name)
+				c.ReapStale(name)
 			}
 		}
 	}()
 
-	// Tail the log and emit peer messages to stdout.
-	if err := tailAndEmit(ctx, c.logPath(), name); err != nil && err != context.Canceled {
+	// Tail the log from the current end — the same poll loop an external peer
+	// would run — emitting peer messages to stdout.
+	if err := tailAndEmit(ctx, c, name); err != nil && err != context.Canceled {
 		fmt.Fprintf(os.Stderr, "agent-chat: stream: %v\n", err)
 	}
 }
 
-// tailAndEmit tails path from its current end and writes filtered, formatted
-// lines to stdout. Blocks until ctx is canceled or a read error occurs.
-func tailAndEmit(ctx context.Context, path, me string) error {
-	f, err := os.Open(path)
+// tailAndEmit polls the channel from its current end via ReadSince and writes
+// filtered, formatted records to stdout. Blocks until ctx is canceled or a read
+// error occurs.
+func tailAndEmit(ctx context.Context, c *channel.Channel, me string) error {
+	cur, err := c.End()
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-
-	if _, err := f.Seek(0, io.SeekEnd); err != nil {
-		return err
-	}
-
-	reader := bufio.NewReader(f)
 	for {
 		select {
 		case <-ctx.Done():
@@ -100,42 +95,25 @@ func tailAndEmit(ctx context.Context, path, me string) error {
 		default:
 		}
 
-		line, err := reader.ReadString('\n')
-		if err == io.EOF {
-			time.Sleep(100 * time.Millisecond)
-			continue
-		}
+		recs, next, err := c.ReadSince(ctx, cur)
 		if err != nil {
 			return err
 		}
-		line = strings.TrimRight(line, "\r\n")
-		if line == "" {
-			continue
-		}
-
-		var r Record
-		if json.Unmarshal([]byte(line), &r) != nil {
-			continue
-		}
-		if r.Sender == me {
-			continue
-		}
-		// Mention filter: if this is a msg with non-empty mentions and I'm not
-		// in them, skip it. Non-msg kinds (join/leave) always pass through.
-		if r.Kind == "msg" && len(r.Mentions) > 0 {
-			mentioned := false
-			for _, m := range r.Mentions {
-				if m == me {
-					mentioned = true
-					break
-				}
-			}
-			if !mentioned {
+		cur = next
+		for _, r := range recs {
+			if r.Sender == me {
 				continue
 			}
+			// Mention filter: a msg with non-empty mentions that doesn't name me
+			// is skipped. Non-msg kinds (join/leave) always pass through.
+			if r.Kind == "msg" && len(r.Mentions) > 0 && !slices.Contains(r.Mentions, me) {
+				continue
+			}
+			emitStreamRecord(r)
 		}
-
-		emitStreamRecord(r)
+		if len(recs) == 0 {
+			time.Sleep(100 * time.Millisecond)
+		}
 	}
 }
 
@@ -144,7 +122,7 @@ func tailAndEmit(ctx context.Context, path, me string) error {
 //	sender │ [ts kind] cwd=... branch=...
 //	sender │ <body line 1>
 //	sender │ <body line 2>
-func emitStreamRecord(r Record) {
+func emitStreamRecord(r channel.Record) {
 	var header strings.Builder
 	header.WriteString(r.Sender)
 	header.WriteString(" │ [")

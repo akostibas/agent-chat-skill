@@ -4,6 +4,29 @@ Release notes for agent-chat. Each release gets a `## vMAJOR.MINOR.PATCH`
 section; `bin/release.sh` uses the matching section as the GitHub release body,
 so **add the new section before cutting a release**.
 
+## v0.5.0
+
+### Features
+
+- **Importable `channel` package.** The channel wire format — the `Record`
+  schema, `log.lock` flock protocol, presence/heartbeat, and mention
+  resolution — is now an importable Go package
+  (`github.com/akostibas/agent-chat-skill/channel`), so an external Go program
+  can join a channel as a first-class peer without reimplementing the format.
+  `cmd/agent-chat` is a thin CLI over the same package; on-disk bytes are
+  unchanged. This is a SemVer-governed surface — see ADR-0005.
+- **Byte-offset cursor for polling.** `ReadSince(ctx, cur)` returns new records
+  plus a cursor; `End()` starts a peer "from now". The cursor self-heals if the
+  channel is deleted and recreated, and never drops or double-reads records that
+  share a one-second timestamp (the failure mode a `--since <ts>` cursor has).
+- **Schema golden test.** A test pins `Record`'s exact on-disk bytes (field
+  order, omitempty, no HTML escaping) so wire-format drift is caught.
+
+### Internal
+
+- `make unit` now runs `go test -race ./...` across the whole module (the unit
+  tests moved to the `channel` package with the core).
+
 ## v0.4.0
 
 ### Breaking changes
