@@ -196,6 +196,54 @@ func TestReadSinceCursor(t *testing.T) {
 	}
 }
 
+// A long-lived consumer persists the read position as a bare int64 and restores
+// it across a restart, surfacing each record exactly once.
+func TestCursorOffsetRoundTrip(t *testing.T) {
+	c := testChannel(t)
+	ctx := context.Background()
+
+	_ = c.Append(ctx, Record{Ts: "t1", Sender: "alice", Kind: "msg", Body: "one"})
+	_ = c.Append(ctx, Record{Ts: "t2", Sender: "bob", Kind: "msg", Body: "two"})
+
+	recs, cur, err := c.ReadSince(ctx, Cursor{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recs) != 2 {
+		t.Fatalf("first poll: got %d records, want 2", len(recs))
+	}
+
+	// Persist the position, then reconstruct it — must equal the original cursor.
+	saved := cur.Offset()
+	if saved <= 0 {
+		t.Fatalf("Offset() = %d, want > 0 after reading records", saved)
+	}
+	if got := CursorAt(saved); got != cur {
+		t.Fatalf("CursorAt(Offset()) = %v, want %v", got, cur)
+	}
+
+	// Simulate a restart: rebuild the cursor purely from the saved int64 and
+	// confirm ReadSince surfaces only records written after it.
+	_ = c.Append(ctx, Record{Ts: "t3", Sender: "alice", Kind: "msg", Body: "three"})
+	recs, _, err = c.ReadSince(ctx, CursorAt(saved))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recs) != 1 || recs[0].Body != "three" {
+		t.Fatalf("resume poll: got %+v, want only 'three'", recs)
+	}
+
+	// A persisted offset past a shrunken log (channel recreated under the same
+	// slug) self-heals to the start rather than seeking into garbage.
+	recs, _, err = c.ReadSince(ctx, CursorAt(saved+1_000_000))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recs) != 3 {
+		t.Fatalf("stale-offset self-heal: got %d records, want all 3 from start", len(recs))
+	}
+}
+
 func TestEndCursorSkipsHistory(t *testing.T) {
 	c := testChannel(t)
 	ctx := context.Background()
