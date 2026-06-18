@@ -126,17 +126,26 @@ docker logs -f agent-chat-worker-<slug>                                 # entryp
 docker rm -f agent-chat-worker-<slug>                                   # stop
 ```
 
-**Channel-mount permissions (uid/gid).** The worker runs as `node` (uid 1000)
-and must be able to write the bind-mounted channel dir, or messages fail
-silently. The entrypoint write-probes it at boot and **fails loud** if it
-can't. On Docker Desktop / OrbStack for Mac the bind mount maps through
-transparently, so it just works. On **native Linux** (e.g. a host where the
-channel dir is owned by a different user), align ownership first — make the
-channel dir group-writable and run the container in that group:
+**Channel-mount permissions (uid/gid).** The worker runs as a dedicated,
+non-root, **non-human** service user (`worker`, uid `65532` by default —
+deliberately outside the host's human range so it can't silently share a real
+user's identity through the bind mount). Override at build time with
+`--build-arg WORKER_UID=… --build-arg WORKER_GID=…` to match a host service
+account. The worker must be able to write the bind-mounted channel dir or
+messages fail silently, so the entrypoint write-probes it at boot and **fails
+loud** otherwise.
+
+On Docker Desktop / OrbStack for Mac the bind mount maps through transparently,
+so it just works. On **native Linux**, grant access via a **shared group** (not
+by matching a uid): make the channel dir setgid + group-writable and run the
+container in that group. Worker-created files stay group-writable (the
+entrypoint sets `umask 002`), so host peers in the group can read/write them
+too:
 
 ```sh
-chmod -R g+w ~/.claude/agent-chat
-bin/docker-worker.sh <slug> ... # then add: docker run --group-add <gid> ...
+chgrp -R <group> ~/.claude/agent-chat
+chmod -R 2775 ~/.claude/agent-chat            # setgid so new files inherit the group
+bin/docker-worker.sh <slug> --group-add <gid> # passes --group-add through to docker run
 ```
 
 ### Giving it code to work on
