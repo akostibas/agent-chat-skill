@@ -58,9 +58,23 @@ type Record struct {
 // Cursor marks a position in the append-only log. The zero value is the start
 // of the log. It is an opaque byte offset; pass the Cursor returned by one
 // ReadSince into the next.
+//
+// A long-lived consumer that must survive restarts can persist a Cursor with
+// Offset and restore it with CursorAt, so it surfaces each record exactly once
+// across process lifetimes.
 type Cursor struct {
 	off int64
 }
+
+// Offset returns the cursor's byte position in the log. Persist this value to
+// resume reading later with CursorAt.
+func (c Cursor) Offset() int64 { return c.off }
+
+// CursorAt reconstructs a Cursor at a byte offset previously obtained from
+// Offset — e.g. to resume after a restart. The offset need not be validated:
+// ReadSince self-heals if it points past a shrunken log (the channel was
+// deleted and recreated under the same slug), resetting to the start.
+func CursorAt(off int64) Cursor { return Cursor{off: off} }
 
 // Channel holds the root dir and slug for one agent-chat channel. Construct it
 // with Open.

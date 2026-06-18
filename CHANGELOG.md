@@ -6,6 +6,15 @@ so **add the new section before cutting a release**.
 
 ## v0.7.0
 
+### Features
+
+- **Serializable `channel.Cursor`.** New `Cursor.Offset() int64` and
+  `CursorAt(off int64) Cursor` let a long-lived consumer persist its read
+  position to disk and restore it across restarts, surfacing each record exactly
+  once. `ReadSince` already self-heals a stale offset past a shrunken log, so the
+  restore path is safe across channel recreation. Additive to the SemVer-governed
+  `channel` surface (issue #13).
+
 ### Changed
 
 - **Worker runs as a dedicated non-human service uid (default 65532), not
