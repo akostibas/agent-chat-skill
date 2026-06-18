@@ -15,6 +15,9 @@
 #   --root DIR         host channel dir to mount     (default: ~/.claude/agent-chat)
 #   --workspace DIR    host repo to mount at /workspace (default: none)
 #   --image NAME       image to run                 (default: agent-chat-worker)
+#   --group-add GID    supplementary gid for the channel dir (native Linux: the
+#                      worker runs as a non-human uid, so it needs the channel
+#                      dir's group to write it)
 #   --api-key          use $ANTHROPIC_API_KEY instead of subscription creds
 #   --foreground       run attached (don't detach)
 #
@@ -34,6 +37,7 @@ WORKSPACE=""
 IMAGE="agent-chat-worker"
 USE_API_KEY=0
 DETACH="-d"
+GROUP_ADD=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -41,6 +45,7 @@ while [[ $# -gt 0 ]]; do
     --root)       ROOT="$2"; shift 2 ;;
     --workspace)  WORKSPACE="$2"; shift 2 ;;
     --image)      IMAGE="$2"; shift 2 ;;
+    --group-add)  GROUP_ADD="$2"; shift 2 ;;   # gid for the shared channel dir (native Linux)
     --api-key)    USE_API_KEY=1; shift ;;
     --foreground) DETACH=""; shift ;;
     *) die "unknown option: $1" ;;
@@ -62,6 +67,7 @@ run_args=( --name "$CONTAINER" --rm
            -v "$ROOT:/channel" )
 
 [[ -n "$WORKSPACE" ]] && run_args+=( -v "$WORKSPACE:/workspace" )
+[[ -n "$GROUP_ADD" ]] && run_args+=( --group-add "$GROUP_ADD" )
 [[ -n "${GITHUB_TOKEN:-}" ]] && run_args+=( -e "GITHUB_TOKEN=$GITHUB_TOKEN" )
 
 CREDS_TMP=""

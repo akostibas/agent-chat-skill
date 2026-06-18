@@ -32,6 +32,13 @@ CREDS_SRC="${AGENT_CHAT_CREDENTIALS:-/run/secrets/claude-credentials}"
 export AGENT_CHAT_ROOT="$CHANNEL_ROOT"
 export AGENT_CHAT_NO_UPDATE_CHECK=1   # offline-friendly; no upstream nudge noise
 
+# Group-writable by default so channel log/presence files this worker creates
+# stay writable by host peers sharing the channel dir's group. The worker runs
+# as a dedicated non-human uid (see Dockerfile / issue #12); channel access is
+# granted via a shared group (--group-add), and this umask keeps that sharing
+# two-way. Inherited by the tmux session launched below.
+umask 002
+
 [[ "$WORKER_NAME" =~ ^[a-zA-Z0-9_-]{1,40}$ ]] \
   || die "AGENT_CHAT_WORKER_NAME '$WORKER_NAME' must match ^[a-zA-Z0-9_-]{1,40}\$"
 
@@ -90,9 +97,13 @@ fi
 [[ -d "$CHANNEL_ROOT" ]] || die "channel root $CHANNEL_ROOT is not a directory — bind-mount it"
 probe="$CHANNEL_ROOT/.write-probe.$$"
 if ! ( : > "$probe" ) 2>/dev/null; then
-  die "cannot write to channel root $CHANNEL_ROOT (uid $(id -u)/gid $(id -g)).
-  Align the container user with the host owner of the channel dir, or make it
-  group-writable. On Docker Desktop for Mac this usually just works."
+  die "cannot write to channel root $CHANNEL_ROOT (uid $(id -u), groups $(id -G)).
+  This worker runs as a dedicated non-human uid, so grant it access via a shared
+  group: make the channel dir group-writable + setgid and run the container in
+  that group, e.g.
+    chgrp <group> $CHANNEL_ROOT && chmod 2775 $CHANNEL_ROOT
+    docker run --group-add <gid> ...
+  On Docker Desktop for Mac the bind mount maps through and this just works."
 fi
 rm -f "$probe"
 

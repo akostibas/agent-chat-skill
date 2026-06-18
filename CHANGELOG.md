@@ -4,6 +4,21 @@ Release notes for agent-chat. Each release gets a `## vMAJOR.MINOR.PATCH`
 section; `bin/release.sh` uses the matching section as the GitHub release body,
 so **add the new section before cutting a release**.
 
+## v0.7.0
+
+### Changed
+
+- **Worker runs as a dedicated non-human service uid (default 65532), not
+  `node`/1000.** Running as uid 1000 — the typical first human login — meant the
+  bind-mounted channel dir made the worker write as, and share the identity of,
+  a real host user (while running with permissions skipped). The worker now uses
+  a reserved service uid/gid (build-arg `WORKER_UID`/`WORKER_GID` to override),
+  and channel-dir access is granted via a **shared group** (`--group-add`), not
+  by uid collision. The entrypoint sets `umask 002` so worker-created channel
+  files stay group-writable for host peers, and `bin/docker-worker.sh` gains a
+  `--group-add` passthrough. Verified on native Linux: the boot write-probe
+  fails loud without the group, passes with it (issue #12).
+
 ## v0.6.0
 
 ### Features

@@ -42,6 +42,19 @@ RUN apt-get update \
     && npm install -g @anthropic-ai/claude-code \
     && claude --version
 
+# Dedicated, non-root, NON-HUMAN service identity (issue #12). The default
+# uid/gid deliberately avoid the host's human range: uid 1000 is the typical
+# first login, and because bind mounts map by uid *number*, running as 1000
+# would silently make the worker write as — and share the identity of — a real
+# person (while running with permissions skipped). 65532 is the distroless
+# `nonroot` convention. Override at build time to match a host service account;
+# grant channel-dir access at run time via a shared group (--group-add), NOT by
+# matching a human's uid.
+ARG WORKER_UID=65532
+ARG WORKER_GID=65532
+RUN groupadd -g ${WORKER_GID} worker \
+    && useradd -m -u ${WORKER_UID} -g worker -s /bin/bash worker
+
 # Bake in the Go toolchain (same version that built the binary) so the worker
 # can build/test Go projects without root or on-task apt.
 # GOTOOLCHAIN=auto (the default, set explicitly so shipped behavior is known):
@@ -50,27 +63,26 @@ RUN apt-get update \
 # hard-failing.
 COPY --from=build /usr/local/go /usr/local/go
 ENV PATH="/usr/local/go/bin:${PATH}" \
-    GOPATH=/home/node/go \
+    GOPATH=/home/worker/go \
     GOTOOLCHAIN=auto
 RUN go version && make --version | head -1
 
-# Install the skill exactly as `make install` does, but into the image's HOME.
-# node:22 ships a uid-1000 `node` user; the worker runs as it.
-ENV SKILL_DIR=/home/node/.claude/skills/agent-chat
+# Install the skill exactly as `make install` does, but into the worker's HOME.
+ENV SKILL_DIR=/home/worker/.claude/skills/agent-chat
 COPY skill/ ${SKILL_DIR}/
 COPY --from=build /out/agent-chat ${SKILL_DIR}/agent-chat
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x "${SKILL_DIR}"/*.sh "${SKILL_DIR}/agent-chat" /usr/local/bin/entrypoint.sh \
     && printf 'docker\n' > "${SKILL_DIR}/VERSION" \
-    && mkdir -p /home/node/.claude /workspace \
-    && chown -R node:node /home/node /workspace
+    && mkdir -p /home/worker/.claude /workspace \
+    && chown -R worker:worker /home/worker /workspace
 
-USER node
+USER worker
 WORKDIR /workspace
 
 # Default channel root is the bind-mount point; override at run time as needed.
 ENV AGENT_CHAT_ROOT=/channel \
     AGENT_CHAT_SKILL_DIR=${SKILL_DIR} \
-    HOME=/home/node
+    HOME=/home/worker
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
