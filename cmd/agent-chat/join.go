@@ -1,10 +1,14 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"regexp"
 	"strings"
+	"time"
+
+	"github.com/akostibas/agent-chat-skill/channel"
 )
 
 var identRE = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,40}$`)
@@ -19,32 +23,21 @@ func validateIdent(kind, value string) {
 func cmdJoin(args []string) {
 	slug, as := parseSlugAs("join", args)
 
-	c := newChannel(slug)
-	sweepOldChannels(c.root)
+	c := openChannel(slug)
+	sweepOldChannels(channelRoot())
 	if d := selfDir(); d != "" {
 		checkForUpdate(d)
 	}
 
-	if err := c.ensureDir(); err != nil {
-		fmt.Fprintf(os.Stderr, "agent-chat: %v\n", err)
-		os.Exit(1)
-	}
-
-	lockF, err := c.acquireLock(5e9)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "agent-chat: %v\n", err)
-		os.Exit(1)
-	}
-	err = c.appendRecord(Record{
-		Ts:     isoNow(),
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := c.Append(ctx, channel.Record{
 		Sender: as,
 		Cwd:    agentCwd(),
 		Branch: agentBranch(),
 		Kind:   "join",
 		Body:   "joined channel",
-	})
-	releaseLock(lockF)
-	if err != nil {
+	}); err != nil {
 		fmt.Fprintf(os.Stderr, "agent-chat: %v\n", err)
 		os.Exit(1)
 	}

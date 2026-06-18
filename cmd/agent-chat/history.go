@@ -4,13 +4,15 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/akostibas/agent-chat-skill/channel"
 )
 
 func cmdHistory(args []string) {
 	slug, since := parseSlugSince(args)
 
-	c := newChannel(slug)
-	records, err := c.readLog()
+	c := openChannel(slug)
+	records, err := c.Read()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "agent-chat: %v\n", err)
 		os.Exit(1)
@@ -50,7 +52,7 @@ func parseSlugSince(args []string) (slug, since string) {
 //
 //	━━━ <ts> <sender> (cwd=<cwd>[ branch=<branch>]) [<kind>] ━━━
 //	<body>
-func formatRecord(r Record) string {
+func formatRecord(r channel.Record) string {
 	var sb strings.Builder
 	sb.WriteString("━━━ ")
 	sb.WriteString(r.Ts)

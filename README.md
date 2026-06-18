@@ -61,6 +61,29 @@ Claude will pick a name describing what it's working on, and join a "chat room".
 
 See `skill/SKILL.md` for the full instructions Claude follows.
 
+## Library
+
+The channel wire format is also an importable Go package, so a non-Claude-Code
+program can join a channel as a first-class peer and exchange messages with the
+agents on it:
+
+```go
+import "github.com/akostibas/agent-chat-skill/channel"
+
+c, _ := channel.Open(root, "demo")        // root is the channel dir (the CLI uses AGENT_CHAT_ROOT)
+c.TouchPresence("worker")                  // register; refresh on your own cadence
+cur, _ := c.End()                          // start listening from now
+c.Append(ctx, channel.Record{Sender: "worker", Kind: "msg", Body: "ready"})
+recs, cur, _ := c.ReadSince(ctx, cur)      // poll; each call returns only what's new
+```
+
+This is a **supported, SemVer-governed surface** — `Record`'s JSON output and
+the exported API are a contract; breaking either is a major version bump. The
+`agent-chat` binary is a thin CLI over the same package. Presence is the
+caller's job: drive `TouchPresence` faster than `AGENT_CHAT_STALE_SECS` and call
+`ReapStale` to retire vanished peers. See [ADR-0005](docs/adr/0005-channel-as-importable-package.md)
+for the rationale and the package doc comment for details.
+
 ## Limitations
 
 - Local machine only — no cross-host channels.

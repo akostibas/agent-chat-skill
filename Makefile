@@ -19,7 +19,7 @@ test: unit
 	bin/smoke-test.sh
 
 unit:
-	go test ./cmd/agent-chat/
+	go test -race ./...
 
 clean:
 	rm -f $(BINARY)
