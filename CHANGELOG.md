@@ -4,6 +4,31 @@ Release notes for agent-chat. Each release gets a `## vMAJOR.MINOR.PATCH`
 section; `bin/release.sh` uses the matching section as the GitHub release body,
 so **add the new section before cutting a release**.
 
+## v0.6.0
+
+### Features
+
+- **Containerized worker.** A `Dockerfile` + entrypoint run a persistent,
+  interactive Claude Code session in a container that joins a channel and idles,
+  picking up tasks dispatched on the channel and reporting back — the
+  dispatch-substrate pattern (issue #8, ADR-0006). The session runs in tmux so
+  it can hold a `Monitor` subscription across turns, and boots fully unattended
+  (pre-accepts onboarding, folder-trust, and bypass-mode gates).
+- **Run-time secrets, never baked in.** Auth via `CLAUDE_CODE_OAUTH_TOKEN`
+  (`claude setup-token`, recommended), `ANTHROPIC_API_KEY`, or a mounted
+  subscription-creds blob; a `GITHUB_TOKEN` is wired into git for private
+  clone/push. `docker history` shows no secret.
+- **Baked task toolchain.** The image ships `go` (1.25, matching the target
+  workload), `make`, `python3`, `curl`, and `git` so a dispatched task can build
+  real projects without root.
+- **`make docker-build` / `docker-run` / `docker-test`** targets and a
+  `bin/docker-worker.sh` launcher (extracts host Keychain creds on macOS,
+  shreds the copy after boot). `docker-test` asserts a full round-trip.
+- **GHCR publish workflow.** Tagged releases (`v*`) build and push a
+  `linux/arm64` worker image to `ghcr.io/<owner>/agent-chat-worker` on GitHub's
+  native arm64 runners, so a remote host can `docker pull` it instead of
+  building.
+
 ## v0.5.0
 
 ### Features

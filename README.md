@@ -61,6 +61,105 @@ Claude will pick a name describing what it's working on, and join a "chat room".
 
 See `skill/SKILL.md` for the full instructions Claude follows.
 
+## Containerized worker
+
+Run a Claude Code session as a long-lived, unattended **worker** on a channel:
+it boots, joins, and idles, then picks up tasks that peers (or another program)
+put on the channel and reports results back — no human babysitting it. This is
+the dispatch-substrate mode: one agent hands implementation work to a
+containerized Claude Code instance and gets results. Same-machine only — the
+container shares the host's channel directory via a bind mount (see
+[Limitations](#limitations)).
+
+### Build
+
+```sh
+make docker-build      # builds the agent-chat-worker image
+```
+
+The image bakes in `claude`, the skill, and a task toolchain (Go, make, git,
+`python3`, `curl`, `jq`, `tmux`) so a dispatched task has what it needs without
+root. Secrets are never baked in — `docker history` is clean.
+
+**Prebuilt image.** Tagged releases publish a `linux/arm64` image to GHCR, so a
+remote host can skip the build:
+
+```sh
+docker pull ghcr.io/akostibas/agent-chat-worker:latest
+```
+
+Point the launcher at it with `--image ghcr.io/akostibas/agent-chat-worker:latest`,
+or `docker run` it directly. On a host without a macOS Keychain (e.g. a Linux
+server), authenticate with `CLAUDE_CODE_OAUTH_TOKEN` (see below).
+
+### Authenticate
+
+The worker runs as your Claude **subscription** (no API key required). Pick one:
+
+- **Recommended — a portable subscription token.** On any machine with a
+  browser, run `claude setup-token` (prints a ~1-year token), then:
+  ```sh
+  export CLAUDE_CODE_OAUTH_TOKEN=<token>
+  bin/docker-worker.sh <channel-slug>
+  ```
+  Best for remote/unattended hosts: just an env var, long-lived, and a separate
+  credential from your interactive login.
+- **Zero-setup on your own Mac.** Omit the token and the launcher extracts your
+  existing Claude Code login from the Keychain, mounts it read-only, and shreds
+  the host copy once the container is up.
+- **API billing.** `bin/docker-worker.sh <slug> --api-key` uses `ANTHROPIC_API_KEY`.
+
+### Run
+
+```sh
+bin/docker-worker.sh <channel-slug> [--name NAME] [--workspace /path/to/repo]
+# or:
+make docker-run CHANNEL=<channel-slug>
+```
+
+The worker joins `<channel-slug>` on your real `~/.claude/agent-chat`, so any
+normal Claude Code session on the host shares the channel. Watch, inspect, stop:
+
+```sh
+docker exec -it -u node agent-chat-worker-<slug> tmux attach -t worker  # watch — Ctrl-b d detaches
+docker logs -f agent-chat-worker-<slug>                                 # entrypoint + session logs
+docker rm -f agent-chat-worker-<slug>                                   # stop
+```
+
+**Channel-mount permissions (uid/gid).** The worker runs as `node` (uid 1000)
+and must be able to write the bind-mounted channel dir, or messages fail
+silently. The entrypoint write-probes it at boot and **fails loud** if it
+can't. On Docker Desktop / OrbStack for Mac the bind mount maps through
+transparently, so it just works. On **native Linux** (e.g. a host where the
+channel dir is owned by a different user), align ownership first — make the
+channel dir group-writable and run the container in that group:
+
+```sh
+chmod -R g+w ~/.claude/agent-chat
+bin/docker-worker.sh <slug> ... # then add: docker run --group-add <gid> ...
+```
+
+### Giving it code to work on
+
+`/workspace` starts empty — no repo is baked into the image (keeps it generic
+and secret-free). Two supported strategies:
+
+- **Mount a host repo:** `--workspace /path/to/repo` bind-mounts it at
+  `/workspace`. Best when the code is already on the host.
+- **Clone on task:** set `GITHUB_TOKEN` (or `GH_TOKEN`) and the worker can
+  `git clone` **private** repos into `/workspace` on demand — the token is wired
+  into git for HTTPS clone/push and a commit identity is set (override with
+  `GIT_USER_NAME` / `GIT_USER_EMAIL`).
+
+### Verify
+
+```sh
+make docker-test   # throwaway channel, asserts a full round-trip, tears down
+```
+
+Crash-survival (a supervisor that relaunches a dead session) is tracked
+separately; today the container exits when the session exits.
+
 ## Library
 
 The channel wire format is also an importable Go package, so a non-Claude-Code

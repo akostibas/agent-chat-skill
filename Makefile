@@ -1,7 +1,9 @@
-SKILL_DIR ?= $(HOME)/.claude/skills/agent-chat
-BINARY     = cmd/agent-chat/agent-chat
+SKILL_DIR  ?= $(HOME)/.claude/skills/agent-chat
+BINARY      = cmd/agent-chat/agent-chat
+DOCKER_IMAGE ?= agent-chat-worker
+CHANNEL     ?= worker-test
 
-.PHONY: build install test unit clean
+.PHONY: build install test unit clean docker-build docker-run docker-test
 
 build:
 	go build -o $(BINARY) ./cmd/agent-chat/
@@ -23,3 +25,17 @@ unit:
 
 clean:
 	rm -f $(BINARY)
+
+# --- containerized worker ---------------------------------------------------
+docker-build:
+	docker build -f docker/Dockerfile -t $(DOCKER_IMAGE) .
+
+# Launch a worker on $(CHANNEL) against your real ~/.claude/agent-chat. Override
+# the channel with CHANNEL=foo. Extracts subscription creds from the Keychain,
+# so run it yourself (e.g. `! make docker-run`) so the token stays out of band.
+docker-run: docker-build
+	bin/docker-worker.sh $(CHANNEL) --image $(DOCKER_IMAGE)
+
+# End-to-end round-trip against a throwaway channel; asserts the worker replies.
+docker-test: docker-build
+	bin/docker-worker-test.sh
