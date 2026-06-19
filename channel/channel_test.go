@@ -448,6 +448,40 @@ func TestReapStalePeers(t *testing.T) {
 	}
 }
 
+// ── active members (freshness) ────────────────────────────────────────────────
+
+func TestActiveMembers(t *testing.T) {
+	c := testChannel(t)
+	if err := c.ensureDir(); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AGENT_CHAT_STALE_SECS", "30")
+
+	// Fresh peer (touched just now).
+	if err := c.TouchPresence("live"); err != nil {
+		t.Fatal(err)
+	}
+	// Stale peer (heartbeat backdated past the cutoff).
+	if err := c.TouchPresence("ghost"); err != nil {
+		t.Fatal(err)
+	}
+	stale := time.Now().Add(-10 * time.Minute)
+	if err := os.Chtimes(c.presFile("ghost"), stale, stale); err != nil {
+		t.Fatal(err)
+	}
+
+	active := c.ActiveMembers()
+	if len(active) != 1 || active[0] != "live" {
+		t.Errorf("expected [live] active members, got %v", active)
+	}
+
+	// Members (no freshness filter) still sees both — ActiveMembers is read-only
+	// and must not have reaped the ghost.
+	if got := len(c.Members()); got != 2 {
+		t.Errorf("expected Members to still list both peers, got %d", got)
+	}
+}
+
 // ── touch / remove presence ──────────────────────────────────────────────────
 
 func TestPresence(t *testing.T) {

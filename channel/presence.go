@@ -23,6 +23,37 @@ func (c *Channel) Members() []string {
 	return names
 }
 
+// ActiveMembers returns the names of members whose heartbeat is still fresh —
+// presence file mod-time within AGENT_CHAT_STALE_SECS. It is the read-only
+// counterpart to Members (which lists every presence file regardless of age)
+// and to ReapStale (which retires stale peers, but mutates the log and takes
+// the lock). Use ActiveMembers to answer "who is live here right now?" without
+// side effects — e.g. to gate a feature on a peer actually being present.
+//
+// Staleness uses the same AGENT_CHAT_STALE_SECS threshold ReapStale honors, so
+// a peer ActiveMembers omits is exactly one a reaper would (eventually) retire.
+func (c *Channel) ActiveMembers() []string {
+	staleSecs := envInt("AGENT_CHAT_STALE_SECS", defaultStaleSecs)
+	entries, err := os.ReadDir(c.presDir())
+	if err != nil {
+		return nil
+	}
+	now := time.Now()
+	cutoff := time.Duration(staleSecs) * time.Second
+	var names []string
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil || now.Sub(info.ModTime()) > cutoff {
+			continue
+		}
+		names = append(names, e.Name())
+	}
+	return names
+}
+
 // TouchPresence refreshes this peer's heartbeat file, creating it on first
 // call. The caller must invoke it on its own cadence — there is no background
 // heartbeat — at an interval shorter than AGENT_CHAT_STALE_SECS, or peers will

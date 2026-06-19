@@ -4,6 +4,17 @@ Release notes for agent-chat. Each release gets a `## vMAJOR.MINOR.PATCH`
 section; `bin/release.sh` uses the matching section as the GitHub release body,
 so **add the new section before cutting a release**.
 
+## v0.8.0
+
+### Features
+
+- **Read-only `channel.ActiveMembers()`.** Returns the members whose heartbeat
+  is still fresh (presence file mod-time within `AGENT_CHAT_STALE_SECS`), using
+  the same threshold `ReapStale` honors. Unlike `Members` it filters out stale
+  peers, and unlike `ReapStale` it has no side effects (no leave records, no
+  lock). Lets a consumer gate a feature on a peer actually being present without
+  mutating the channel. Additive to the SemVer-governed `channel` surface.
+
 ## v0.7.0
 
 ### Features
