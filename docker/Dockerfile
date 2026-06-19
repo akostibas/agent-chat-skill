@@ -67,13 +67,18 @@ ENV PATH="/usr/local/go/bin:${PATH}" \
     GOTOOLCHAIN=auto
 RUN go version && make --version | head -1
 
-# Install the skill exactly as `make install` does, but into the worker's HOME.
-ENV SKILL_DIR=/home/worker/.claude/skills/agent-chat
+# Install the skill OUTSIDE $HOME (issue #14) so the rootfs can be mounted
+# read-only with a writable HOME (tmpfs/volume) without shadowing the skill. The
+# entrypoint materializes a copy into $HOME/.claude/skills at runtime, where
+# Claude Code discovers skills. World-readable since it's shared, read-only,
+# baked content (the runtime uid may differ from build's `worker`).
+ENV SKILL_DIR=/opt/agent-chat/skill
 COPY skill/ ${SKILL_DIR}/
 COPY --from=build /out/agent-chat ${SKILL_DIR}/agent-chat
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x "${SKILL_DIR}"/*.sh "${SKILL_DIR}/agent-chat" /usr/local/bin/entrypoint.sh \
     && printf 'docker\n' > "${SKILL_DIR}/VERSION" \
+    && chmod -R a+rX "${SKILL_DIR}" \
     && mkdir -p /home/worker/.claude /workspace \
     && chown -R worker:worker /home/worker /workspace
 

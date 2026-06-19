@@ -42,6 +42,11 @@ umask 002
 [[ "$WORKER_NAME" =~ ^[a-zA-Z0-9_-]{1,40}$ ]] \
   || die "AGENT_CHAT_WORKER_NAME '$WORKER_NAME' must match ^[a-zA-Z0-9_-]{1,40}\$"
 
+# Ensure the writable-HOME skeleton exists before anything writes to it. The
+# skill lives outside $HOME (issue #14) and $HOME may be a fresh tmpfs/volume
+# under a read-only rootfs, so nothing image-baked under $HOME can be assumed.
+mkdir -p "$HOME/.claude"
+
 # --- auth -------------------------------------------------------------------
 # Three accepted sources, in precedence order:
 #   1. CLAUDE_CODE_OAUTH_TOKEN — a long-lived subscription token from
@@ -89,6 +94,20 @@ JSON
 fi
 if [[ ! -f "$HOME/.claude/settings.json" ]]; then
   printf '{"skipDangerousModePermissionPrompt": true}\n' > "$HOME/.claude/settings.json"
+fi
+
+# --- materialize the skill where Claude Code discovers it -------------------
+# The skill is installed outside $HOME (issue #14, so the rootfs can be
+# read-only); copy it into $HOME/.claude/skills so native discovery sets
+# CLAUDE_SKILL_DIR. A copy, not a symlink, so discovery never depends on
+# symlink-following. Cheap (a few scripts + one static binary) and refreshed
+# each boot so an image update is picked up.
+SKILL_SRC="${AGENT_CHAT_SKILL_DIR:-/opt/agent-chat/skill}"
+if [[ -d "$SKILL_SRC" ]]; then
+  mkdir -p "$HOME/.claude/skills"
+  rm -rf "$HOME/.claude/skills/agent-chat"
+  cp -a "$SKILL_SRC" "$HOME/.claude/skills/agent-chat"
+  log "skill materialized at \$HOME/.claude/skills/agent-chat (from $SKILL_SRC)"
 fi
 
 # --- channel mount writability ---------------------------------------------

@@ -4,6 +4,18 @@ Release notes for agent-chat. Each release gets a `## vMAJOR.MINOR.PATCH`
 section; `bin/release.sh` uses the matching section as the GitHub release body,
 so **add the new section before cutting a release**.
 
+## v0.8.1
+
+### Changed
+
+- **Containerized worker: skill installed outside `$HOME`.** The worker image
+  now bakes the skill at `/opt/agent-chat/skill`, and the entrypoint copies it
+  into `$HOME/.claude/skills/agent-chat` at startup (where Claude Code discovers
+  it). This lets the container run with a **read-only root filesystem** plus a
+  writable HOME (tmpfs/volume) without the writable HOME shadowing the baked
+  skill. Image-internal only — no change to the skill scripts, CLI, the
+  `channel` package, or the on-disk channel format. (issue #14)
+
 ## v0.8.0
 
 ### Features
