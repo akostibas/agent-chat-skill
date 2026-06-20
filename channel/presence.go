@@ -74,6 +74,30 @@ func (c *Channel) TouchPresence(name string) error {
 	return nil
 }
 
+// RunHeartbeat keeps this peer present until ctx is canceled: it touches
+// presence once up front, then on every AGENT_CHAT_HEARTBEAT_SECS tick refreshes
+// its own presence and reaps any peer that has gone stale. It blocks until ctx
+// is done, so callers run it in a goroutine and own its lifetime via the
+// context. This is the canonical heartbeat loop — any long-running member (the
+// stream runner, an embedding server) should drive presence through it rather
+// than re-implementing the ticker. It does NOT remove presence or post a leave
+// on exit; pair a clean shutdown with RemovePresence + Leave.
+func (c *Channel) RunHeartbeat(ctx context.Context, name string) {
+	heartbeatSecs := envInt("AGENT_CHAT_HEARTBEAT_SECS", defaultHeartbeatSecs)
+	_ = c.TouchPresence(name)
+	ticker := time.NewTicker(time.Duration(heartbeatSecs) * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			_ = c.TouchPresence(name)
+			c.ReapStale(name)
+		}
+	}
+}
+
 // RemovePresence deletes this peer's presence file. Call it alongside Leave on
 // a clean shutdown so the peer is not later re-announced as a timed-out
 // departure.

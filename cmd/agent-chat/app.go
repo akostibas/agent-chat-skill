@@ -14,8 +14,7 @@ import (
 )
 
 const (
-	defaultHeartbeatSecs = 15
-	defaultTTLDays       = 14
+	defaultTTLDays = 14
 )
 
 // channelRoot resolves the channel root directory, honoring AGENT_CHAT_ROOT and

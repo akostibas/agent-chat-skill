@@ -41,6 +41,7 @@ import (
 )
 
 const defaultStaleSecs = 45
+const defaultHeartbeatSecs = 15
 
 // Record is a single JSONL entry in the channel log. Field names and omitempty
 // rules are the published schema — they must stay byte-identical to what the

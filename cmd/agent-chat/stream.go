@@ -56,22 +56,8 @@ func cmdStream(args []string) {
 		os.Exit(0)
 	}()
 
-	// Heartbeat: refresh presence and reap stale peers on each tick.
-	heartbeatSecs := envInt("AGENT_CHAT_HEARTBEAT_SECS", defaultHeartbeatSecs)
-	_ = c.TouchPresence(name)
-	go func() {
-		ticker := time.NewTicker(time.Duration(heartbeatSecs) * time.Second)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				_ = c.TouchPresence(name)
-				c.ReapStale(name)
-			}
-		}
-	}()
+	// Heartbeat: refresh presence and reap stale peers until ctx is canceled.
+	go c.RunHeartbeat(ctx, name)
 
 	// Tail the log from the current end — the same poll loop an external peer
 	// would run — emitting peer messages to stdout.
