@@ -507,3 +507,58 @@ func TestPresence(t *testing.T) {
 		t.Error("presence file should be gone after remove")
 	}
 }
+
+func TestRunHeartbeat(t *testing.T) {
+	c := testChannel(t)
+	if err := c.ensureDir(); err != nil {
+		t.Fatal(err)
+	}
+	// Tick fast so the loop refreshes within the test's patience.
+	t.Setenv("AGENT_CHAT_HEARTBEAT_SECS", "1")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		c.RunHeartbeat(ctx, "worker")
+		close(done)
+	}()
+
+	// Presence is established up front, before the first tick.
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if _, err := os.Stat(c.presFile("worker")); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("RunHeartbeat did not create presence file")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// A tick refreshes the heartbeat: backdate the file and confirm the loop
+	// bumps its mod-time forward on its own.
+	old := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(c.presFile("worker"), old, old); err != nil {
+		t.Fatal(err)
+	}
+	deadline = time.Now().Add(3 * time.Second)
+	for {
+		info, err := os.Stat(c.presFile("worker"))
+		if err == nil && info.ModTime().After(old.Add(time.Minute)) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("RunHeartbeat did not refresh presence on tick")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// Canceling the context stops the loop (it returns without removing
+	// presence — that's the caller's job).
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("RunHeartbeat did not return after context cancel")
+	}
+}
