@@ -32,12 +32,13 @@ FROM node:24-bookworm-slim
 # everything a dispatched task might need must be baked in here (issue #8 audit):
 #   tmux              pty for the unattended TUI
 #   git               clone/commit/push (private repos via injected PAT)
+#   openssh-client    ssh-keygen: SSH commit signing + key minting (entrypoint)
 #   jq, bash, ca-certificates, curl  skill + common-task deps
 #   make, python3     common needs for Go-with-make projects and scripts
 # Go itself is copied from the build stage below (apt's golang is too old).
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        tmux git jq ca-certificates bash curl make python3 \
+        tmux git openssh-client jq ca-certificates bash curl make python3 \
     && rm -rf /var/lib/apt/lists/* \
     && npm install -g @anthropic-ai/claude-code \
     && claude --version

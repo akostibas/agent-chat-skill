@@ -17,6 +17,10 @@
 #                             recommended path for remote/unattended hosts)
 #   ANTHROPIC_API_KEY         API-billing alternative
 #   GITHUB_TOKEN / GH_TOKEN   optional, passed through to the session
+#   GIT_USER_NAME / GIT_USER_EMAIL  commit (and signing) identity
+#   GIT_SIGNING_KEY_FILE      optional, a mounted private key -> SSH commit signing (BYOK)
+#   GIT_SIGNING_AUTOGEN       optional, =1 to mint+register a signing key from the token
+#   GIT_SIGNING_KEY_TITLE     title for the registered signing key  [default agent-chat-worker]
 #
 # Auth precedence: CLAUDE_CODE_OAUTH_TOKEN > ANTHROPIC_API_KEY > creds file.
 # Any one is enough.
@@ -141,6 +145,85 @@ if [[ -n "${GITHUB_TOKEN:-}" ]]; then
   git config --global user.name  "${GIT_USER_NAME:-agent-chat worker}"
   git config --global user.email "${GIT_USER_EMAIL:-agent-chat-worker@localhost}"
   log "github: PAT wired into git for private clone/push (https://github.com)"
+fi
+
+# --- optional commit signing (SSH) -----------------------------------------
+# Generic, host-agnostic. A signing key is resolved three ways, in priority
+# order; the committer identity is the one set above (GIT_USER_EMAIL), which —
+# for GitHub to mark commits "Verified" — MUST be a verified email on the
+# signing key's account.
+#
+#   1. GIT_SIGNING_KEY_FILE — path to an existing (mounted) private key. Staged
+#      to a 600 path in $HOME and used as-is. Bring-your-own-key: no GitHub API
+#      call, no extra token scope. The right choice when a key is provisioned
+#      out of band and shared across instances.
+#   2. GIT_SIGNING_AUTOGEN=1 — if no key exists yet, mint an ed25519 key and
+#      register it as an SSH *signing* key on the token's account (idempotent:
+#      delete-then-add by title), then persist it. Convenience for single-
+#      instance / shared-volume use; needs the token to carry
+#      admin:ssh_signing_key (write). flock-guarded so concurrent boots sharing
+#      the key volume don't double-mint. NB: autogen across multiple instances
+#      WITHOUT a shared key volume clobbers by title -> Unverified commits; such
+#      deployments should provision a key and use mode 1.
+#   3. neither — signing stays off.
+SIGN_KEY="$HOME/.ssh/agent-chat-signing"
+SIGN_TITLE="${GIT_SIGNING_KEY_TITLE:-agent-chat-worker}"
+
+configure_ssh_signing() {
+  git config --global gpg.format ssh
+  git config --global user.signingkey "$SIGN_KEY"
+  git config --global commit.gpgsign true
+  git config --global tag.gpgsign true
+  log "signing: ssh commit signing on (key $SIGN_KEY, identity $(git config --global user.email))"
+}
+
+register_signing_key() {  # idempotent: drop any same-title key, then add ours
+  local api="https://api.github.com/user/ssh_signing_keys" pub id
+  pub="$(cat "$SIGN_KEY.pub")"
+  curl -fsS -H "Authorization: Bearer $GITHUB_TOKEN" -H "Accept: application/vnd.github+json" "$api" \
+    | jq -r --arg t "$SIGN_TITLE" '.[] | select(.title==$t) | .id' \
+    | while read -r id; do
+        [[ -n "$id" ]] && curl -fsS -X DELETE \
+          -H "Authorization: Bearer $GITHUB_TOKEN" "$api/$id" >/dev/null 2>&1
+      done
+  if curl -fsS -X POST -H "Authorization: Bearer $GITHUB_TOKEN" \
+       -H "Accept: application/vnd.github+json" "$api" \
+       -d "$(jq -nc --arg t "$SIGN_TITLE" --arg k "$pub" '{title:$t,key:$k}')" >/dev/null 2>&1; then
+    log "signing: registered key '$SIGN_TITLE' on the token's account"
+  else
+    log "signing: key registration FAILED — token needs admin:ssh_signing_key (write)"
+    return 1
+  fi
+}
+
+mint_signing_key() {  # generate + register once; no-op if the key already exists
+  [[ -f "$SIGN_KEY" ]] && return 0
+  ssh-keygen -t ed25519 -N '' -C "$SIGN_TITLE" -f "$SIGN_KEY" >/dev/null \
+    && register_signing_key
+}
+
+if [[ -n "${GIT_SIGNING_KEY_FILE:-}" && -f "${GIT_SIGNING_KEY_FILE:-}" ]]; then
+  install -d -m 700 "$HOME/.ssh"
+  install -m 600 "$GIT_SIGNING_KEY_FILE" "$SIGN_KEY"
+  if ssh-keygen -y -f "$SIGN_KEY" > "$SIGN_KEY.pub" 2>/dev/null; then
+    configure_ssh_signing
+  else
+    log "signing: could not derive a public key from GIT_SIGNING_KEY_FILE — signing off"
+  fi
+elif [[ "${GIT_SIGNING_AUTOGEN:-0}" =~ ^(1|true|yes)$ ]]; then
+  if [[ -z "${GITHUB_TOKEN:-}" ]]; then
+    log "signing: GIT_SIGNING_AUTOGEN set but no GITHUB_TOKEN — signing off"
+  else
+    install -d -m 700 "$HOME/.ssh"
+    if command -v flock >/dev/null 2>&1; then
+      ( flock 9 || exit 0; mint_signing_key ) 9>"$HOME/.ssh/.agent-chat-signing.lock"
+    else
+      mint_signing_key   # flock absent: single-instance use won't race
+    fi
+    [[ -f "$SIGN_KEY" ]] && configure_ssh_signing
+  fi
+else
+  log "signing: off (set GIT_SIGNING_KEY_FILE for BYOK, or GIT_SIGNING_AUTOGEN=1 to mint one)"
 fi
 
 # --- seed prompt ------------------------------------------------------------

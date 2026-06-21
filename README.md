@@ -160,10 +160,39 @@ and secret-free). Two supported strategies:
   into git for HTTPS clone/push and a commit identity is set (override with
   `GIT_USER_NAME` / `GIT_USER_EMAIL`).
 
+### Signing commits (optional)
+
+If the worker's commits need to be **Verified** on GitHub, give it an SSH
+signing key — there's no GPG/1Password agent in the container. Two ways, plus
+off (the default). The committer email is `GIT_USER_EMAIL`, which must be a
+**verified email on the signing key's GitHub account** or commits show
+Unverified.
+
+- **Bring your own key (`GIT_SIGNING_KEY_FILE`)** — mount a private key and
+  point this at it. Used as-is; no GitHub API call, no extra token scope. The
+  right choice when a key is provisioned out of band and **shared across
+  instances** (each container only reads it, so nothing races):
+
+  ```sh
+  docker run ... -v /host/signing_key:/run/signing/key:ro \
+    -e GIT_SIGNING_KEY_FILE=/run/signing/key \
+    -e GIT_USER_EMAIL=you@example.com  ...
+  ```
+
+- **Autogenerate (`GIT_SIGNING_AUTOGEN=1`)** — if no key exists yet, the worker
+  mints an ed25519 key and registers it as an SSH *signing* key on the token's
+  account (idempotent by title via `GIT_SIGNING_KEY_TITLE`), then persists it.
+  Convenience for a **single** worker (or several sharing one key volume — minting
+  is `flock`-guarded). Needs the token to carry `admin:ssh_signing_key` (write).
+  ⚠️ Multiple workers **without** a shared key volume will clobber each other's
+  registration by title and produce Unverified commits — provision a key and use
+  bring-your-own-key instead.
+
 ### Verify
 
 ```sh
-make docker-test   # throwaway channel, asserts a full round-trip, tears down
+make docker-test       # throwaway channel, asserts a full round-trip, tears down
+bin/signing-selftest.sh # verifies the SSH commit-signing setup (host or in-image)
 ```
 
 Crash-survival (a supervisor that relaunches a dead session) is tracked
