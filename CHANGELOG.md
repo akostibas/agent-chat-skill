@@ -4,6 +4,23 @@ Release notes for agent-chat. Each release gets a `## vMAJOR.MINOR.PATCH`
 section; `bin/release.sh` uses the matching section as the GitHub release body,
 so **add the new section before cutting a release**.
 
+## v0.10.0
+
+### Features
+
+- **Env-driven SSH commit signing for the containerized worker.** The worker
+  does real git work but has no GPG/1Password agent, so its commits couldn't be
+  Verified. The entrypoint now resolves a signing key from env at startup, in
+  priority order: `GIT_SIGNING_KEY_FILE` (a mounted private key, used as-is —
+  bring-your-own-key, no API call, safe to share one key across instances);
+  `GIT_SIGNING_AUTOGEN=1` (mint an ed25519 key and register it as an SSH signing
+  key on the token's account, idempotent by `GIT_SIGNING_KEY_TITLE`,
+  `flock`-guarded — needs `admin:ssh_signing_key`); or off (default). Committer
+  identity reuses `GIT_USER_NAME` / `GIT_USER_EMAIL`. The image now installs
+  `openssh-client` (git's SSH signing shells out to `ssh-keygen`). New
+  `bin/signing-selftest.sh` verifies the path on the host and inside the image.
+  (issue #15)
+
 ## v0.8.1
 
 ### Changed
