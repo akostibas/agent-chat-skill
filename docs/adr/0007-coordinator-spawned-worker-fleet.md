@@ -41,11 +41,17 @@ no human present.
    unique container name. It prints the command for the coordinator to join that
    same channel and the teardown command.
 
-2. **Workers clone from GitHub and push branches back.** Each worker clones the
-   target repo fresh into `/workspace` at boot (`AGENT_CHAT_CLONE_REPO`), works
-   on a branch the coordinator names, and `git push`es it; the coordinator merges
-   or opens PRs from the host. No host worktrees, no shared `.git` across the
-   container boundary — integration is the ordinary remote-branch flow.
+2. **Workers clone from GitHub and push branches back; the coordinator owns
+   integration.** Each worker clones the target repo fresh into `/workspace` at
+   boot (`AGENT_CHAT_CLONE_REPO`) — its own clone is its worktree — works on a
+   branch the coordinator names, and `git push`es it. Branch/merge topology is a
+   coordinator concern, never a worker's: the coordinator cuts an integration
+   branch off fresh `origin/main`, gives each worker its own branch (never a
+   shared one — concurrent pushes race), merges completed worker branches into
+   the integration branch serially (resolving conflicts, the seam it owns per
+   [[ADR-0002]]), then merges/PRs that one branch to `main`. No host worktrees,
+   no shared `.git` across the container boundary — integration is the ordinary
+   remote-branch flow.
 
 3. **Interactive tools are disabled by default in the image.** The entrypoint
    passes `--disallowed-tools "AskUserQuestion ExitPlanMode"` to every worker

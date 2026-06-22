@@ -133,9 +133,14 @@ bin/spawn-fleet.sh -n <N> [--repo <url>]   # --repo defaults to the cwd's origin
 
 It launches N hardened containers on a **private, ephemeral channel** (its own temp dir, *not* the user's global `~/.claude/agent-chat`), each cloning the repo fresh into `/workspace`. It prints the exact command to **join that channel as coordinator** — run it, make the Monitor call, and the workers announce themselves as they come up.
 
-**Dispatch and integrate:**
-- Address each worker by its announced `@name` with a **complete, self-contained task** — a branch name to use, acceptance criteria, where to report. Workers can't ask follow-ups, so don't leave gaps; tell them to state assumptions and proceed.
-- Each worker commits, **pushes its branch**, and reports the branch name. You review and merge / open PRs from the host side. Workers never merge to the main branch themselves.
+**Branch topology is yours, not the workers'.** A worker only ever knows "develop on the branch I was handed, push it, report the name." All integration is your job:
+- Cut an **integration branch** (e.g. `fleet/<id>`) off freshly-fetched `origin/main`.
+- Give each worker **its own branch** to develop on (its container clone is its worktree). They never share a branch — concurrent pushes to one branch race.
+- As workers finish, **you merge each branch into the integration branch**, serializing on shared hot files and resolving conflicts (the seam is yours; ADR-0002). Then do **one** merge / PR of the integration branch → `main` once the assembled result is verified.
+
+**Dispatch and supervise:**
+- Address each worker by its announced `@name` with a **complete, self-contained task** — its branch name, acceptance criteria, where to report. Workers can't ask follow-ups, so leave no gaps; tell them to state assumptions and proceed.
+- Each worker commits, **pushes its branch**, and reports it. Workers never merge to `main` or the integration branch themselves.
 - Supervise event-driven (READY/blocked/done), same as any formation.
 
 **Tear down when done** (stops every container by label, removes the ephemeral channel; does *not* delete pushed branches):
