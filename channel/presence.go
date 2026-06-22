@@ -2,10 +2,16 @@ package channel
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"os"
+	"slices"
 	"time"
 )
+
+// ErrNameTaken is returned by Join when the requested name is already held by an
+// active member. The caller decides policy: a human-picked name should surface
+// this and re-pick; a machine-generated one should regenerate and retry.
+var ErrNameTaken = errors.New("channel: name already active")
 
 // Members returns the names of all peers with a presence file. A peer becomes a
 // member by calling TouchPresence and stops being one when its file is removed
@@ -101,21 +107,18 @@ func (c *Channel) RunHeartbeat(ctx context.Context, name string) {
 
 // Join atomically claims an identity on the channel and records the arrival. It
 // is the collision-safe entry point a joining peer should use instead of a bare
-// Append: under the channel lock it (1) reads the live roster, (2) resolves a
-// free name — the requested r.Sender if no active member holds it, otherwise the
-// same name with a numeric suffix (name-2, name-3, …), (3) claims that name's
-// presence file, and (4) appends the join record under the resolved name. It
-// returns the name actually assigned; the caller MUST adopt it for every
-// subsequent send, mention, presence touch, and the Monitor stream, because it
-// may differ from what was requested.
+// Append: under the channel lock it (1) reads the live roster, (2) refuses with
+// ErrNameTaken if r.Sender is already an active member, otherwise (3) claims that
+// name's presence file and (4) appends the join record. It returns the claimed
+// name on success.
 //
 // Claiming presence inside the same lock is what makes the check race-free: two
 // processes joining the same name in the same instant are serialized by the
-// flock, so the second sees the first's presence and suffixes. It also closes
-// the window between join and stream start — a peer is a visible member the
-// moment it joins, before its heartbeat loop exists — which a presence-only or
-// log-only check would otherwise miss. Staleness still applies: a name held only
-// by a timed-out (e.g. SIGKILLed) peer is free to reuse, so ghosts don't
+// flock, so the second sees the first's presence and gets ErrNameTaken. It also
+// closes the window between join and stream start — a peer is a visible member
+// the moment it joins, before its heartbeat loop exists — which a presence-only
+// or log-only check would otherwise miss. Staleness still applies: a name held
+// only by a timed-out (e.g. SIGKILLed) peer is free to reclaim, so ghosts don't
 // permanently burn names.
 func (c *Channel) Join(ctx context.Context, r Record) (string, error) {
 	if err := c.ensureDir(); err != nil {
@@ -127,38 +130,19 @@ func (c *Channel) Join(ctx context.Context, r Record) (string, error) {
 	}
 	defer releaseLock(lockF)
 
-	taken := make(map[string]bool)
-	for _, m := range c.ActiveMembers() {
-		taken[m] = true
+	if slices.Contains(c.ActiveMembers(), r.Sender) {
+		return "", ErrNameTaken
 	}
-	name := disambiguate(r.Sender, taken)
-
-	if err := c.TouchPresence(name); err != nil {
+	if err := c.TouchPresence(r.Sender); err != nil {
 		return "", err
 	}
-	r.Sender = name
 	if r.Ts == "" {
 		r.Ts = isoNow()
 	}
 	if err := c.appendLocked(r); err != nil {
 		return "", err
 	}
-	return name, nil
-}
-
-// disambiguate returns name unchanged if no active member holds it, otherwise
-// the first free "name-N" suffix starting at -2. taken is the set of live member
-// names; it is finite, so the loop always terminates.
-func disambiguate(name string, taken map[string]bool) string {
-	if !taken[name] {
-		return name
-	}
-	for i := 2; ; i++ {
-		cand := fmt.Sprintf("%s-%d", name, i)
-		if !taken[cand] {
-			return cand
-		}
-	}
+	return r.Sender, nil
 }
 
 // RemovePresence deletes this peer's presence file. Call it alongside Leave on

@@ -10,13 +10,16 @@ so **add the new section before cutting a release**.
 
 - **Collision-safe agent names (#16).** `join` no longer lets two sessions
   silently share one identity. Two changes work together:
-  - **Race-free claim at join.** The new `channel.Join` resolves and claims the
-    name *under the channel lock* — it reads the live roster, suffixes a
-    requested name that's already active (`worker` → `worker-2`), and writes the
-    presence file before releasing the lock. Claiming presence at join (not at
-    stream start) closes the window where a just-joined peer was invisible, and
-    staleness still applies so a name held only by a timed-out peer is reusable.
-    The assigned name is printed prominently; agents must adopt it.
+  - **Race-free claim at join.** The new `channel.Join` claims the name *under
+    the channel lock* — it reads the live roster, refuses a requested name
+    that's already active (`ErrNameTaken`), and writes the presence file before
+    releasing the lock. Claiming presence at join (not at stream start) closes
+    the window where a just-joined peer was invisible, and staleness still
+    applies so a name held only by a timed-out peer is reclaimable.
+  - **Reject human-picked collisions; regenerate machine-picked ones.** A
+    `--as` name that's already active makes `join` fail loudly so the agent
+    re-picks (numeric suffixes confuse the humans watching the channel); an
+    auto-generated collision just regenerates.
   - **Machine-owned entropy for default names.** `--as` is now optional. With no
     name, the binary generates a memorable `adjective-animal` name from
     `crypto/rand`, sidestepping the LLM name-clustering that caused the
