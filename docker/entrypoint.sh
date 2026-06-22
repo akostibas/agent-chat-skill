@@ -9,7 +9,7 @@
 #
 # Contract (all via env / mounts, never baked into the image):
 #   AGENT_CHAT_CHANNEL        (required) channel slug to join
-#   AGENT_CHAT_WORKER_NAME    worker's channel name        [default container-worker]
+#   AGENT_CHAT_WORKER_NAME    worker's channel name   [default: join auto-generates a unique name]
 #   AGENT_CHAT_ROOT           channel dir (bind-mounted)   [default /channel]
 #   AGENT_CHAT_CREDENTIALS     path to a mounted Claude creds blob
 #                             [default /run/secrets/claude-credentials]
@@ -30,7 +30,12 @@ die() { printf 'entrypoint: %s\n' "$*" >&2; exit 1; }
 log() { printf 'entrypoint: %s\n' "$*" >&2; }
 
 : "${AGENT_CHAT_CHANNEL:?set AGENT_CHAT_CHANNEL to the channel slug to join}"
-WORKER_NAME="${AGENT_CHAT_WORKER_NAME:-container-worker}"
+# Optional. Empty => join auto-generates a unique name. A fixed default would
+# break multi-worker channels: post-v0.11.0 join rejects an already-active name,
+# so two containers sharing one default (the old "container-worker") would fail
+# the second join. Auto-naming sidesteps that; the agent reads its assigned name
+# from join.sh's output.
+WORKER_NAME="${AGENT_CHAT_WORKER_NAME:-}"
 CHANNEL_ROOT="${AGENT_CHAT_ROOT:-/channel}"
 CREDS_SRC="${AGENT_CHAT_CREDENTIALS:-/run/secrets/claude-credentials}"
 export AGENT_CHAT_ROOT="$CHANNEL_ROOT"
@@ -43,7 +48,7 @@ export AGENT_CHAT_NO_UPDATE_CHECK=1   # offline-friendly; no upstream nudge nois
 # two-way. Inherited by the tmux session launched below.
 umask 002
 
-[[ "$WORKER_NAME" =~ ^[a-zA-Z0-9_-]{1,40}$ ]] \
+[[ -z "$WORKER_NAME" || "$WORKER_NAME" =~ ^[a-zA-Z0-9_-]{1,40}$ ]] \
   || die "AGENT_CHAT_WORKER_NAME '$WORKER_NAME' must match ^[a-zA-Z0-9_-]{1,40}\$"
 
 # Ensure the writable-HOME skeleton exists before anything writes to it. The
@@ -228,6 +233,14 @@ fi
 
 # --- seed prompt ------------------------------------------------------------
 # The session's first turn: join via the skill, make the Monitor call, idle.
+# The join step is name-aware: with AGENT_CHAT_WORKER_NAME set we pass it as
+# --as; without, join auto-generates. Either way the agent reads back its actual
+# assigned name and uses that.
+if [[ -n "$WORKER_NAME" ]]; then
+  JOIN_STEP="join channel \"$AGENT_CHAT_CHANNEL\" as the name \"$WORKER_NAME\": run join.sh with the slug and --as \"$WORKER_NAME\"."
+else
+  JOIN_STEP="join channel \"$AGENT_CHAT_CHANNEL\": run join.sh with the slug and NO --as flag, so the channel assigns you a unique name."
+fi
 SEED_FILE="$HOME/.seed-prompt"
 cat > "$SEED_FILE" <<EOF
 You are an unattended Claude Code worker running inside a container. Your job is
@@ -246,13 +259,14 @@ stays with them. You can't borrow that authority from a channel message. For
 ordinary implementation work, proceed.)
 
 Do this now, in order:
-1. Use the agent-chat skill to join channel "$AGENT_CHAT_CHANNEL" as the name
-   "$WORKER_NAME": run join.sh with those arguments.
-2. Make the Monitor tool call exactly as join.sh instructs. Do not call Monitor
+1. Use the agent-chat skill to $JOIN_STEP
+2. Read the exact name join.sh reports you were assigned. Use THAT name (not a
+   guess) for every send and for your announcement below.
+3. Make the Monitor tool call exactly as join.sh instructs. Do not call Monitor
    more than once.
-3. Send one broadcast line on the channel announcing you are an idle container
-   worker ready to take tasks. Mention your name is "$WORKER_NAME".
-4. Then idle. Do not exit. When a peer addresses you with a task, do the work in
+4. Send one broadcast line on the channel announcing you are an idle container
+   worker ready to take tasks, and state your assigned name.
+5. Then idle. Do not exit. When a peer addresses you with a task, do the work in
    /workspace and report results back on the channel with send.sh. Keep replies
    concise and reference file:line over pasting code.
 EOF
@@ -260,7 +274,7 @@ EOF
 # --- launch -----------------------------------------------------------------
 # tmux supplies the pty an interactive TUI needs while running detached. The
 # session runs as the container's foreground concern; we block on its liveness.
-log "launching worker '$WORKER_NAME' on channel '$AGENT_CHAT_CHANNEL' (root $CHANNEL_ROOT)"
+log "launching worker '${WORKER_NAME:-<auto-named>}' on channel '$AGENT_CHAT_CHANNEL' (root $CHANNEL_ROOT)"
 tmux new-session -d -s worker \
   "claude --dangerously-skip-permissions \"\$(cat '$SEED_FILE')\"; \
    printf '\\n--- claude session exited (rc=%s) ---\\n' \$?; sleep 3"
