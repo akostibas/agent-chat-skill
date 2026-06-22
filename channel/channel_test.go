@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -560,5 +561,72 @@ func TestRunHeartbeat(t *testing.T) {
 	case <-done:
 	case <-time.After(2 * time.Second):
 		t.Fatal("RunHeartbeat did not return after context cancel")
+	}
+}
+
+// ── join: race-free name claim ───────────────────────────────────────────────
+
+func TestJoinAssignsRequestedName(t *testing.T) {
+	c := testChannel(t)
+	got, err := c.Join(context.Background(), Record{Sender: "worker", Kind: "join", Body: "hi"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "worker" {
+		t.Errorf("expected assigned name %q, got %q", "worker", got)
+	}
+	// The name is claimed (presence file) and the join record carries it.
+	if _, err := os.Stat(c.presFile("worker")); err != nil {
+		t.Errorf("join should claim presence: %v", err)
+	}
+	recs, err := c.Read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recs) != 1 || recs[0].Sender != "worker" || recs[0].Kind != "join" {
+		t.Errorf("expected one join record from worker, got %+v", recs)
+	}
+}
+
+func TestJoinRejectsActiveCollision(t *testing.T) {
+	c := testChannel(t)
+	t.Setenv("AGENT_CHAT_STALE_SECS", "30")
+	// First worker takes the name.
+	if _, err := c.Join(context.Background(), Record{Sender: "worker", Kind: "join", Body: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	// Second worker requests the same name while the first is still active: it is
+	// rejected with ErrNameTaken, and nothing is written for it.
+	_, err := c.Join(context.Background(), Record{Sender: "worker", Kind: "join", Body: "b"})
+	if !errors.Is(err, ErrNameTaken) {
+		t.Fatalf("expected ErrNameTaken, got %v", err)
+	}
+	recs, err := c.Read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recs) != 1 {
+		t.Errorf("rejected join must not append a record; log has %d records", len(recs))
+	}
+}
+
+func TestJoinReusesStaleName(t *testing.T) {
+	c := testChannel(t)
+	t.Setenv("AGENT_CHAT_STALE_SECS", "30")
+	// A name held only by a timed-out (e.g. SIGKILLed) peer must be reusable, so
+	// ghosts don't permanently burn names.
+	if _, err := c.Join(context.Background(), Record{Sender: "worker", Kind: "join", Body: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	stale := time.Now().Add(-10 * time.Minute)
+	if err := os.Chtimes(c.presFile("worker"), stale, stale); err != nil {
+		t.Fatal(err)
+	}
+	got, err := c.Join(context.Background(), Record{Sender: "worker", Kind: "join", Body: "b"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "worker" {
+		t.Errorf("stale name should be reusable; expected %q, got %q", "worker", got)
 	}
 }

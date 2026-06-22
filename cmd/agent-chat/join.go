@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"regexp"
@@ -21,7 +22,7 @@ func validateIdent(kind, value string) {
 }
 
 func cmdJoin(args []string) {
-	slug, as := parseSlugAs("join", args)
+	slug, as := parseJoinArgs(args)
 
 	c := openChannel(slug)
 	sweepOldChannels(channelRoot())
@@ -31,15 +32,33 @@ func cmdJoin(args []string) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := c.Append(ctx, channel.Record{
-		Sender: as,
-		Cwd:    agentCwd(),
-		Branch: agentBranch(),
-		Kind:   "join",
-		Body:   "joined channel",
-	}); err != nil {
-		fmt.Fprintf(os.Stderr, "agent-chat: %v\n", err)
+	join := func(name string) (string, error) {
+		return c.Join(ctx, channel.Record{
+			Sender: name,
+			Cwd:    agentCwd(),
+			Branch: agentBranch(),
+			Kind:   "join",
+			Body:   "joined channel",
+		})
+	}
+
+	// --as is optional. Without it the binary owns the entropy and picks a
+	// memorable machine-random name, sidestepping the LLM name-clustering that
+	// caused the silent collisions in #16. A human-picked name that's already
+	// active is rejected so the agent re-picks (suffixes confuse humans); a
+	// generated collision just regenerates, since there's no human in the loop.
+	generated := as == ""
+	if generated {
+		as = claimGeneratedName(join)
+	} else if name, err := join(as); err != nil {
+		if errors.Is(err, channel.ErrNameTaken) {
+			fmt.Fprintf(os.Stderr, "agent-chat: name %q is already active on channel %q — pick a different name with --as, or omit --as to be auto-named.\n", as, slug)
+		} else {
+			fmt.Fprintf(os.Stderr, "agent-chat: %v\n", err)
+		}
 		os.Exit(1)
+	} else {
+		as = name
 	}
 
 	// Build the Monitor command pointing at the stream.sh shim so it's
@@ -59,7 +78,12 @@ func cmdJoin(args []string) {
 		}
 	}
 
-	fmt.Printf("Joined channel %q as %q.\n\n", slug, as)
+	if generated {
+		fmt.Printf("Joined channel %q as %q (auto-generated — no --as given).\n", slug, as)
+		fmt.Printf("Use %q as your name from now on, and tell the user.\n\n", as)
+	} else {
+		fmt.Printf("Joined channel %q as %q.\n\n", slug, as)
+	}
 	fmt.Printf("Now call the Monitor tool with EXACTLY these parameters:\n")
 	fmt.Printf("  description: agent-chat:%s\n", slug)
 	fmt.Printf("  persistent: true\n")
@@ -69,13 +93,35 @@ func cmdJoin(args []string) {
 	fmt.Printf("rest of this session. Do not call Monitor again for this channel.\n")
 }
 
-// parseSlugAs parses the mixed positional/flag style used by all subcommands:
+// claimGeneratedName retries machine-generated names until join claims one.
+// Generated collisions are rare (~2300 base combinations) and there's no human
+// to re-pick, so we regenerate rather than reject. Bounded so a saturated
+// channel fails loudly instead of spinning forever.
+func claimGeneratedName(join func(string) (string, error)) string {
+	for range 20 {
+		name, err := join(generateName())
+		if err == nil {
+			return name
+		}
+		if !errors.Is(err, channel.ErrNameTaken) {
+			fmt.Fprintf(os.Stderr, "agent-chat: %v\n", err)
+			os.Exit(1)
+		}
+	}
+	fmt.Fprintln(os.Stderr, "agent-chat: could not find a free auto-generated name after 20 tries")
+	os.Exit(1)
+	return ""
+}
+
+// scanSlugAs parses the mixed positional/flag style used by every subcommand:
 //
 //	<slug> --as <name>
 //
 // The slug may appear before or after --as (the shell scripts always put it
-// first, but accepting it anywhere is more robust).
-func parseSlugAs(cmd string, args []string) (slug, as string) {
+// first, but accepting it anywhere is more robust). It does no validation or
+// required-field enforcement — callers layer that on, since join treats --as as
+// optional while the rest require it.
+func scanSlugAs(args []string) (slug, as string) {
 	for i := 0; i < len(args); i++ {
 		switch {
 		case args[i] == "--as" || args[i] == "-as":
@@ -89,11 +135,32 @@ func parseSlugAs(cmd string, args []string) (slug, as string) {
 			slug = args[i]
 		}
 	}
+	return slug, as
+}
+
+// parseSlugAs is the strict form for send/history: both slug and --as required.
+func parseSlugAs(cmd string, args []string) (slug, as string) {
+	slug, as = scanSlugAs(args)
 	if slug == "" || as == "" {
 		fmt.Fprintf(os.Stderr, "usage: agent-chat %s <slug> --as <name>\n", cmd)
 		os.Exit(1)
 	}
 	validateIdent("slug", slug)
 	validateIdent("name", as)
+	return slug, as
+}
+
+// parseJoinArgs is join's form: slug required, --as optional. An empty as means
+// "generate one"; cmdJoin fills it in.
+func parseJoinArgs(args []string) (slug, as string) {
+	slug, as = scanSlugAs(args)
+	if slug == "" {
+		fmt.Fprintln(os.Stderr, "usage: agent-chat join <slug> [--as <name>]")
+		os.Exit(1)
+	}
+	validateIdent("slug", slug)
+	if as != "" {
+		validateIdent("name", as)
+	}
 	return slug, as
 }

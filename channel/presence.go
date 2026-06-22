@@ -2,9 +2,16 @@ package channel
 
 import (
 	"context"
+	"errors"
 	"os"
+	"slices"
 	"time"
 )
+
+// ErrNameTaken is returned by Join when the requested name is already held by an
+// active member. The caller decides policy: a human-picked name should surface
+// this and re-pick; a machine-generated one should regenerate and retry.
+var ErrNameTaken = errors.New("channel: name already active")
 
 // Members returns the names of all peers with a presence file. A peer becomes a
 // member by calling TouchPresence and stops being one when its file is removed
@@ -96,6 +103,46 @@ func (c *Channel) RunHeartbeat(ctx context.Context, name string) {
 			c.ReapStale(name)
 		}
 	}
+}
+
+// Join atomically claims an identity on the channel and records the arrival. It
+// is the collision-safe entry point a joining peer should use instead of a bare
+// Append: under the channel lock it (1) reads the live roster, (2) refuses with
+// ErrNameTaken if r.Sender is already an active member, otherwise (3) claims that
+// name's presence file and (4) appends the join record. It returns the claimed
+// name on success.
+//
+// Claiming presence inside the same lock is what makes the check race-free: two
+// processes joining the same name in the same instant are serialized by the
+// flock, so the second sees the first's presence and gets ErrNameTaken. It also
+// closes the window between join and stream start — a peer is a visible member
+// the moment it joins, before its heartbeat loop exists — which a presence-only
+// or log-only check would otherwise miss. Staleness still applies: a name held
+// only by a timed-out (e.g. SIGKILLed) peer is free to reclaim, so ghosts don't
+// permanently burn names.
+func (c *Channel) Join(ctx context.Context, r Record) (string, error) {
+	if err := c.ensureDir(); err != nil {
+		return "", err
+	}
+	lockF, err := c.acquireLock(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer releaseLock(lockF)
+
+	if slices.Contains(c.ActiveMembers(), r.Sender) {
+		return "", ErrNameTaken
+	}
+	if err := c.TouchPresence(r.Sender); err != nil {
+		return "", err
+	}
+	if r.Ts == "" {
+		r.Ts = isoNow()
+	}
+	if err := c.appendLocked(r); err != nil {
+		return "", err
+	}
+	return r.Sender, nil
 }
 
 // RemovePresence deletes this peer's presence file. Call it alongside Leave on
