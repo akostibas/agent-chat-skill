@@ -11,6 +11,13 @@
 #   AGENT_CHAT_CHANNEL        (required) channel slug to join
 #   AGENT_CHAT_WORKER_NAME    worker's channel name   [default: join auto-generates a unique name]
 #   AGENT_CHAT_ROOT           channel dir (bind-mounted)   [default /channel]
+#   AGENT_CHAT_CLONE_REPO     optional git URL; cloned into /workspace at boot
+#                             when that dir is empty (fleet workers; issue #17)
+#   AGENT_CHAT_DISALLOWED_TOOLS  space-separated Claude tools to block in the
+#                             worker session [default "AskUserQuestion
+#                             ExitPlanMode"; set EMPTY to allow all]. An
+#                             unattended container can't answer an interactive
+#                             prompt, so these would hang it — blocked by default.
 #   AGENT_CHAT_CREDENTIALS     path to a mounted Claude creds blob
 #                             [default /run/secrets/claude-credentials]
 #   CLAUDE_CODE_OAUTH_TOKEN   subscription token from `claude setup-token` (the
@@ -231,6 +238,24 @@ else
   log "signing: off (set GIT_SIGNING_KEY_FILE for BYOK, or GIT_SIGNING_AUTOGEN=1 to mint one)"
 fi
 
+# --- optional repo clone ----------------------------------------------------
+# Fleet workers (issue #17) are dispatched against a repo cloned fresh at boot:
+# the host launcher passes AGENT_CHAT_CLONE_REPO and the worker pushes its branch
+# back to the remote for the coordinator to merge. Runs AFTER the GitHub-token
+# wiring above so private clones authenticate. Gated + idempotent: skipped when
+# unset (single-worker / Shannon manage their own checkout) or when /workspace
+# already holds a checkout, so a restart never clobbers in-progress work.
+CLONE_REPO="${AGENT_CHAT_CLONE_REPO:-}"
+if [[ -n "$CLONE_REPO" ]]; then
+  if [[ -n "$(ls -A "$WORKSPACE_DIR" 2>/dev/null)" ]]; then
+    log "clone: $WORKSPACE_DIR not empty — keeping existing checkout, skipping clone of $CLONE_REPO"
+  else
+    log "clone: cloning $CLONE_REPO into $WORKSPACE_DIR"
+    git clone "$CLONE_REPO" "$WORKSPACE_DIR" \
+      || die "clone failed: $CLONE_REPO (check the URL, and that GITHUB_TOKEN can read it for a private repo)"
+  fi
+fi
+
 # --- seed prompt ------------------------------------------------------------
 # The session's first turn: join via the skill, make the Monitor call, idle.
 # The join step is name-aware: with AGENT_CHAT_WORKER_NAME set we pass it as
@@ -240,6 +265,13 @@ if [[ -n "$WORKER_NAME" ]]; then
   JOIN_STEP="join channel \"$AGENT_CHAT_CHANNEL\" as the name \"$WORKER_NAME\": run join.sh with the slug and --as \"$WORKER_NAME\"."
 else
   JOIN_STEP="join channel \"$AGENT_CHAT_CHANNEL\": run join.sh with the slug and NO --as flag, so the channel assigns you a unique name."
+fi
+# When the host launcher cloned a repo for us, tell the worker its checkout is
+# ready and how work flows back (push a branch; the coordinator merges/PRs).
+if [[ -n "$CLONE_REPO" ]]; then
+  WORKSPACE_NOTE="A fresh checkout of $CLONE_REPO is already in /workspace. For a coding task, work on the branch the coordinator names, commit, and \`git push\` that branch to origin — then report the branch name on the channel so the coordinator can merge or open a PR. Do NOT merge to the main branch yourself."
+else
+  WORKSPACE_NOTE="Do task work in /workspace."
 fi
 SEED_FILE="$HOME/.seed-prompt"
 cat > "$SEED_FILE" <<EOF
@@ -266,17 +298,38 @@ Do this now, in order:
    more than once.
 4. Send one broadcast line on the channel announcing you are an idle container
    worker ready to take tasks, and state your assigned name.
-5. Then idle. Do not exit. When a peer addresses you with a task, do the work in
-   /workspace and report results back on the channel with send.sh. Keep replies
-   concise and reference file:line over pasting code.
+5. Then idle. Do not exit. When a peer addresses you with a task, carry it out
+   and report results back on the channel with send.sh. $WORKSPACE_NOTE Keep
+   replies concise and reference file:line over pasting code.
+
+You are unattended: no human can answer a prompt here. The tools that would wait
+for one are disabled. If a task is ambiguous, make a reasonable assumption, state
+it on the channel, and proceed — never stop to wait for input.
 EOF
+
+# --- disallowed tools -------------------------------------------------------
+# A containerized worker is unattended by construction, so any tool that waits
+# for human input can only hang it: AskUserQuestion has no one to answer, and
+# ExitPlanMode matters only in a plan mode a skip-permissions worker never
+# enters. Block both by default. The `-` (not `:-`) means UNSET → default while
+# an explicitly EMPTY AGENT_CHAT_DISALLOWED_TOOLS opts out entirely; any other
+# value overrides the list. The names are bare tokens (no shell metachars), so
+# the flag is built unquoted on purpose to split into separate args. It MUST come
+# AFTER the positional prompt on the claude command line: --disallowed-tools is
+# variadic and otherwise swallows the prompt, parsing each prompt word as a bogus
+# deny rule and leaving the session with no instructions (verified, claude v2.1).
+DISALLOWED_TOOLS="${AGENT_CHAT_DISALLOWED_TOOLS-AskUserQuestion ExitPlanMode}"
+DISALLOW_ARGS=""
+[[ -n "$DISALLOWED_TOOLS" ]] && DISALLOW_ARGS="--disallowed-tools $DISALLOWED_TOOLS"
+log "disallowed tools: ${DISALLOWED_TOOLS:-<none>}"
 
 # --- launch -----------------------------------------------------------------
 # tmux supplies the pty an interactive TUI needs while running detached. The
 # session runs as the container's foreground concern; we block on its liveness.
+# $DISALLOW_ARGS trails the prompt (see the variadic note above).
 log "launching worker '${WORKER_NAME:-<auto-named>}' on channel '$AGENT_CHAT_CHANNEL' (root $CHANNEL_ROOT)"
 tmux new-session -d -s worker \
-  "claude --dangerously-skip-permissions \"\$(cat '$SEED_FILE')\"; \
+  "claude --dangerously-skip-permissions \"\$(cat '$SEED_FILE')\" $DISALLOW_ARGS; \
    printf '\\n--- claude session exited (rc=%s) ---\\n' \$?; sleep 3"
 
 log "session started in tmux 'worker'. Attach with: docker exec -it <container> tmux attach -t worker"

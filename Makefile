@@ -3,7 +3,7 @@ BINARY      = cmd/agent-chat/agent-chat
 DOCKER_IMAGE ?= agent-chat-worker
 CHANNEL     ?= worker-test
 
-.PHONY: build install test unit clean docker-build docker-run docker-test
+.PHONY: build install test unit clean fleet-test docker-build docker-run docker-test
 
 build:
 	go build -o $(BINARY) ./cmd/agent-chat/
@@ -19,9 +19,14 @@ install: build
 
 test: unit
 	bin/smoke-test.sh
+	bin/fleet-test.sh
 
 unit:
 	go test -race ./...
+
+# Hermetic check of the fleet tooling (stubs `docker`; no image/containers).
+fleet-test:
+	bin/fleet-test.sh
 
 clean:
 	rm -f $(BINARY)

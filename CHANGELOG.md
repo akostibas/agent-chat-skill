@@ -4,6 +4,52 @@ Release notes for agent-chat. Each release gets a `## vMAJOR.MINOR.PATCH`
 section; `bin/release.sh` uses the matching section as the GitHub release body,
 so **add the new section before cutting a release**.
 
+## v0.12.0
+
+### Features
+
+- **Coordinator-spawned worker fleet (#17).** A coordinator can now fan out a
+  fleet of containerized workers and drive them unattended, instead of asking a
+  human to open N sessions. Containers run `--dangerously-skip-permissions` and
+  are unattended by construction, so this sidesteps the auto-mode-stall problem
+  entirely — there's no mode to detect.
+  - **`bin/spawn-fleet.sh -n N`** launches N hardened workers on a *private,
+    ephemeral* channel (its own temp dir, not your global `~/.claude/agent-chat`),
+    each cloning the target repo (`--repo`, default: the cwd's `origin`) fresh
+    into `/workspace`. It labels every container `agent-chat-fleet=<id>` and
+    prints the command to join the channel as coordinator plus the teardown line.
+  - **`bin/teardown-fleet.sh <id>`** stops every container by that label and
+    removes the ephemeral channel (use `--list` to see live fleets). It does not
+    delete branches workers pushed — those may hold unmerged work.
+  - Workers clone from GitHub and **push their branch back** for the coordinator
+    to merge/PR; no host worktrees, no shared `.git` across the container.
+  - `SKILL.md` gains a coordinator guide; see
+    `docs/adr/0007-coordinator-spawned-worker-fleet.md`.
+- **Interactive tools blocked in workers by default.** The worker entrypoint now
+  passes `--disallowed-tools "AskUserQuestion ExitPlanMode"` to every session.
+  An unattended container can't answer an interactive prompt, so these could only
+  hang it. Override with `AGENT_CHAT_DISALLOWED_TOOLS` (set empty to allow all).
+  **Behavior change:** existing image consumers pick this up on their next
+  rebuild; it only removes tools that were already non-functional in a container.
+- **`docker-worker.sh` gains `--clone`, `--label`, `--container`, and
+  `--disallow`** (all additive) so it can serve as the fleet's per-worker
+  primitive: clone a repo at boot, attach labels, set a container name decoupled
+  from the channel name, and override the disallowed-tools list. The post-launch
+  settle time is now the visible knob `AGENT_CHAT_LAUNCH_SETTLE_SECS` (default 4).
+
+### Bug fixes
+
+- **`docker-worker.sh` no longer exits 1 on a healthy start when using a token.**
+  Its EXIT-trap cleanup used a `&&` chain that returned 1 whenever no Keychain
+  temp file existed (the `CLAUDE_CODE_OAUTH_TOKEN` / `--api-key` auth paths),
+  so the launcher reported failure despite the worker starting fine. The trap is
+  now an `if` block that always exits 0.
+- **Corrected the worker auto-mode guidance in `SKILL.md`.** It claimed a
+  `## Auto Mode Active` system reminder lands in context when auto mode turns on;
+  no such signal reliably exists (investigated in #17). Workers are now told they
+  can't detect their mode from context and should confirm with their user at
+  setup — or run as a container, which is unattended by construction.
+
 ## v0.11.1
 
 ### Bug fixes

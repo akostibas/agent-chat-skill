@@ -117,7 +117,39 @@ Coordinator tracks **context and role, not name** — the right coordinator is w
 - **Announce state transitions** (`READY`, `blocked`, `done`) so the coordinator's event-driven gating works without polling you.
 - **Report observed post-conditions, not inferred ones.** Verify the actual effect before you claim it — a success log is not proof the side-effect happened ("the log said success" ≠ "I verified the effect"; a clean exit code can still hide a silent no-op). If a mechanism ran cleanly but the observable result didn't occur, report exactly that. Never claim a green you didn't observe.
 - **Rebase before you merge; fetch before you branch.** Rebase onto fresh `origin/main` right before merging your slice — that single habit is what makes serial merging painless. And base every new worktree/branch on freshly-fetched `origin/main`, never stale local main: `git fetch` first, every time. Branching off stale main risks rebuilding work that was already merged.
-- **Confirm you're in auto mode at join time.** Unattended work needs Claude Code's **auto mode** — *not* plan mode, which forces a stop-and-present-plan, nor default, which prompts on each action. You can tell: a `## Auto Mode Active` system reminder lands in your context when auto mode turns on (mode changes surface as transition reminders). If you don't have that signal, ask your user — they're present during setup — to switch to auto mode before you go heads-down. Then declare it to the channel: `role=worker, auto-mode confirmed`. If you can't run unattended, say so up front so the coordinator treats you as a blocker.
+- **Confirm at join time that you can run unattended.** Unattended work needs a non-interactive posture — Claude Code's **auto mode**, *not* plan mode (which forces a stop-and-present-plan) or default (which prompts on each action). **You cannot reliably detect your own mode from context** — there is no dependable in-context signal for it (investigated in #17), so don't assume one. Instead, ask your user at setup — they're present then — to confirm you're in auto mode before you go heads-down, and declare it to the channel: `role=worker, auto-mode confirmed`. If you can't run unattended, say so up front so the coordinator treats you as a blocker. (A **containerized worker** sidesteps this entirely — it's unattended by construction with no mode to confirm; see "Spawning a container worker fleet".)
+
+## Spawning a container worker fleet (coordinator)
+
+When a task splits into **independent subtasks** that could run in parallel, and you have the `agent-chat-skill` repo checked out with the worker image built (`make docker-build`), you can spawn a fleet of **containerized workers** and drive them unattended — instead of asking the user to open N Claude Code sessions by hand.
+
+**Why containers:** each worker runs `--dangerously-skip-permissions` and is unattended *by construction*, so it never stops to ask a human and the interactive tools that would hang it are disabled. This sidesteps the auto-mode problem entirely (issue #17) — there's no mode to detect.
+
+**Offer first, sized to the work.** Don't spawn unprompted. Count the genuinely independent subtasks and propose that many (the user can adjust); serialize anything that contends on shared hot files (see the coordinator rules above). Then:
+
+```
+bin/spawn-fleet.sh -n <N> [--repo <url>]   # --repo defaults to the cwd's origin
+```
+
+It launches N hardened containers on a **private, ephemeral channel** (its own temp dir, *not* the user's global `~/.claude/agent-chat`), each cloning the repo fresh into `/workspace`. It prints the exact command to **join that channel as coordinator** — run it, make the Monitor call, and the workers announce themselves as they come up.
+
+**Branch topology is yours, not the workers'.** A worker only ever knows "develop on the branch I was handed, push it, report the name." All integration is your job:
+- Cut an **integration branch** (e.g. `fleet/<id>`) off freshly-fetched `origin/main`.
+- Give each worker **its own branch** to develop on (its container clone is its worktree). They never share a branch — concurrent pushes to one branch race.
+- As workers finish, **you merge each branch into the integration branch**, serializing on shared hot files and resolving conflicts (the seam is yours; ADR-0002). Then do **one** merge / PR of the integration branch → `main` once the assembled result is verified.
+
+**Dispatch and supervise:**
+- Address each worker by its announced `@name` with a **complete, self-contained task** — its branch name, acceptance criteria, where to report. Workers can't ask follow-ups, so leave no gaps; tell them to state assumptions and proceed.
+- Each worker commits, **pushes its branch**, and reports it. Workers never merge to `main` or the integration branch themselves.
+- Supervise event-driven (READY/blocked/done), same as any formation.
+
+**Tear down when done** (stops every container by label, removes the ephemeral channel; does *not* delete pushed branches):
+
+```
+bin/teardown-fleet.sh <fleet-id>     # the id spawn-fleet printed; --list shows live fleets
+```
+
+See `docs/adr/0007-coordinator-spawned-worker-fleet.md` for the design and trade-offs.
 
 ## Etiquette
 
