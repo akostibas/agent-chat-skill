@@ -314,7 +314,10 @@ EOF
 # enters. Block both by default. The `-` (not `:-`) means UNSET → default while
 # an explicitly EMPTY AGENT_CHAT_DISALLOWED_TOOLS opts out entirely; any other
 # value overrides the list. The names are bare tokens (no shell metachars), so
-# the flag is built unquoted on purpose to split into separate args.
+# the flag is built unquoted on purpose to split into separate args. It MUST come
+# AFTER the positional prompt on the claude command line: --disallowed-tools is
+# variadic and otherwise swallows the prompt, parsing each prompt word as a bogus
+# deny rule and leaving the session with no instructions (verified, claude v2.1).
 DISALLOWED_TOOLS="${AGENT_CHAT_DISALLOWED_TOOLS-AskUserQuestion ExitPlanMode}"
 DISALLOW_ARGS=""
 [[ -n "$DISALLOWED_TOOLS" ]] && DISALLOW_ARGS="--disallowed-tools $DISALLOWED_TOOLS"
@@ -323,9 +326,10 @@ log "disallowed tools: ${DISALLOWED_TOOLS:-<none>}"
 # --- launch -----------------------------------------------------------------
 # tmux supplies the pty an interactive TUI needs while running detached. The
 # session runs as the container's foreground concern; we block on its liveness.
+# $DISALLOW_ARGS trails the prompt (see the variadic note above).
 log "launching worker '${WORKER_NAME:-<auto-named>}' on channel '$AGENT_CHAT_CHANNEL' (root $CHANNEL_ROOT)"
 tmux new-session -d -s worker \
-  "claude --dangerously-skip-permissions $DISALLOW_ARGS \"\$(cat '$SEED_FILE')\"; \
+  "claude --dangerously-skip-permissions \"\$(cat '$SEED_FILE')\" $DISALLOW_ARGS; \
    printf '\\n--- claude session exited (rc=%s) ---\\n' \$?; sleep 3"
 
 log "session started in tmux 'worker'. Attach with: docker exec -it <container> tmux attach -t worker"
