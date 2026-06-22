@@ -562,3 +562,93 @@ func TestRunHeartbeat(t *testing.T) {
 		t.Fatal("RunHeartbeat did not return after context cancel")
 	}
 }
+
+// ── join: race-free name claim ───────────────────────────────────────────────
+
+func TestJoinAssignsRequestedName(t *testing.T) {
+	c := testChannel(t)
+	got, err := c.Join(context.Background(), Record{Sender: "worker", Kind: "join", Body: "hi"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "worker" {
+		t.Errorf("expected assigned name %q, got %q", "worker", got)
+	}
+	// The name is claimed (presence file) and the join record carries it.
+	if _, err := os.Stat(c.presFile("worker")); err != nil {
+		t.Errorf("join should claim presence: %v", err)
+	}
+	recs, err := c.Read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recs) != 1 || recs[0].Sender != "worker" || recs[0].Kind != "join" {
+		t.Errorf("expected one join record from worker, got %+v", recs)
+	}
+}
+
+func TestJoinDisambiguatesActiveCollision(t *testing.T) {
+	c := testChannel(t)
+	t.Setenv("AGENT_CHAT_STALE_SECS", "30")
+	// First worker takes the name.
+	if _, err := c.Join(context.Background(), Record{Sender: "worker", Kind: "join", Body: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	// Second worker requests the same name while the first is still active.
+	got, err := c.Join(context.Background(), Record{Sender: "worker", Kind: "join", Body: "b"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "worker-2" {
+		t.Errorf("expected disambiguated name %q, got %q", "worker-2", got)
+	}
+	// A third collision climbs to -3, and both suffixed names have their own
+	// presence files (no shared identity).
+	got3, err := c.Join(context.Background(), Record{Sender: "worker", Kind: "join", Body: "c"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got3 != "worker-3" {
+		t.Errorf("expected %q, got %q", "worker-3", got3)
+	}
+	for _, n := range []string{"worker", "worker-2", "worker-3"} {
+		if _, err := os.Stat(c.presFile(n)); err != nil {
+			t.Errorf("expected distinct presence file for %q: %v", n, err)
+		}
+	}
+}
+
+func TestJoinReusesStaleName(t *testing.T) {
+	c := testChannel(t)
+	t.Setenv("AGENT_CHAT_STALE_SECS", "30")
+	// A name held only by a timed-out (e.g. SIGKILLed) peer must be reusable, so
+	// ghosts don't permanently burn names.
+	if _, err := c.Join(context.Background(), Record{Sender: "worker", Kind: "join", Body: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	stale := time.Now().Add(-10 * time.Minute)
+	if err := os.Chtimes(c.presFile("worker"), stale, stale); err != nil {
+		t.Fatal(err)
+	}
+	got, err := c.Join(context.Background(), Record{Sender: "worker", Kind: "join", Body: "b"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "worker" {
+		t.Errorf("stale name should be reusable; expected %q, got %q", "worker", got)
+	}
+}
+
+func TestDisambiguate(t *testing.T) {
+	taken := map[string]bool{"a": true, "a-2": true, "b": true}
+	cases := map[string]string{
+		"a": "a-3", // a and a-2 taken
+		"b": "b-2", // b taken
+		"c": "c",   // free
+	}
+	for in, want := range cases {
+		if got := disambiguate(in, taken); got != want {
+			t.Errorf("disambiguate(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

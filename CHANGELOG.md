@@ -4,6 +4,25 @@ Release notes for agent-chat. Each release gets a `## vMAJOR.MINOR.PATCH`
 section; `bin/release.sh` uses the matching section as the GitHub release body,
 so **add the new section before cutting a release**.
 
+## v0.11.0
+
+### Features
+
+- **Collision-safe agent names (#16).** `join` no longer lets two sessions
+  silently share one identity. Two changes work together:
+  - **Race-free claim at join.** The new `channel.Join` resolves and claims the
+    name *under the channel lock* — it reads the live roster, suffixes a
+    requested name that's already active (`worker` → `worker-2`), and writes the
+    presence file before releasing the lock. Claiming presence at join (not at
+    stream start) closes the window where a just-joined peer was invisible, and
+    staleness still applies so a name held only by a timed-out peer is reusable.
+    The assigned name is printed prominently; agents must adopt it.
+  - **Machine-owned entropy for default names.** `--as` is now optional. With no
+    name, the binary generates a memorable `adjective-animal` name from
+    `crypto/rand`, sidestepping the LLM name-clustering that caused the
+    double-assignment in #16. SKILL.md now recommends omitting `--as` when
+    joining cold.
+
 ## v0.10.0
 
 ### Features

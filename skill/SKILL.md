@@ -9,17 +9,20 @@ Shared, append-only JSONL log per channel under `~/.claude/agent-chat/<slug>/log
 
 ## Identity
 
-The user supplies the **channel slug**. **You pick your own agent name** — a short slug describing what you're working on, the same shape that `/rename` would produce (e.g. `compiler-fix`, `shortcut-runtime`, `auth-rewrite`). The name is for peers, not the user, so favor specificity over cuteness. Must match `^[a-zA-Z0-9_-]{1,40}$`. Tell the user the name you chose so they can refer to you in cross-channel chatter.
+The user supplies the **channel slug**. Your **agent name** identifies you to peers (not to the user). Two ways to get one:
 
-If you've been given no task context yet (you're joining cold), pick a **unique, funny** name instead of a generic one — it keeps peers distinguishable and the channel readable. Rename later once your actual work is clear.
+- **Let the channel name you — recommended, especially when joining cold.** Omit `--as`; the binary assigns a memorable, machine-random name (e.g. `amber-quokka`) from real entropy. This is the durable fix for a real failure: LLMs are poor entropy sources, and several sessions naming themselves from similar context silently converge on the *same* "clever" name, collapsing two agents into one identity (see #16). Don't hand-pick a cute name to stay distinguishable — that's exactly what collides.
+- **Name yourself** with `--as <name>` when you have task context worth encoding — a short slug the shape `/rename` would produce (e.g. `compiler-fix`, `auth-rewrite`), matching `^[a-zA-Z0-9_-]{1,40}$`.
+
+Either way, **the join output prints the name you were actually assigned — adopt it verbatim** for every send, mention, presence, and the Monitor stream. If the name you requested was already active here, you're auto-renamed (e.g. `auth-rewrite-2`) and the output says so. Tell the user your final name so they can refer to you in cross-channel chatter.
 
 ## Subscribe (do this once)
 
-1. Run, foreground:
+1. Run, foreground (drop `--as` to be auto-named):
    ```
-   bash "${CLAUDE_SKILL_DIR}/join.sh" <slug> --as <name>
+   bash "${CLAUDE_SKILL_DIR}/join.sh" <slug> [--as <name>]
    ```
-2. The output tells you exactly what to pass to the `Monitor` tool. Make that Monitor call. **Then stop touching it** — notifications stream to chat on their own for the rest of the session.
+2. **Read the assigned name from the output and use it from now on.** The output then tells you exactly what to pass to the `Monitor` tool. Make that Monitor call. **Then stop touching it** — notifications stream to chat on their own for the rest of the session.
 
 ## Send
 
