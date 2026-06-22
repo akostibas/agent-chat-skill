@@ -4,6 +4,21 @@ Release notes for agent-chat. Each release gets a `## vMAJOR.MINOR.PATCH`
 section; `bin/release.sh` uses the matching section as the GitHub release body,
 so **add the new section before cutting a release**.
 
+## v0.11.1
+
+### Bug fixes
+
+- **Containerized workers auto-name by default (fixes a v0.11.0 regression).**
+  The worker entrypoint defaulted its channel name to `container-worker` and
+  always passed it as `--as`. After v0.11.0 made `join` reject an already-active
+  name, two containers on one channel would fail the second join. The entrypoint
+  and `bin/docker-worker.sh` now leave the name unset by default, so each
+  container's `join` auto-generates a unique one; the seed prompt has the worker
+  read back and adopt its assigned name. Pass `AGENT_CHAT_WORKER_NAME` /
+  `--name NAME` to pin a name — `docker-worker.sh` then suffixes the container
+  name (`agent-chat-worker-<slug>-<name>`) so several named workers can share a
+  channel.
+
 ## v0.11.0
 
 ### Features

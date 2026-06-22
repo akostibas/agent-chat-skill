@@ -11,7 +11,7 @@
 #   bin/docker-worker.sh <channel-slug> [options]
 #
 # Options:
-#   --name NAME        worker's channel name        (default: container-worker)
+#   --name NAME        worker's channel name   (default: the channel auto-names it)
 #   --root DIR         host channel dir to mount     (default: ~/.claude/agent-chat)
 #   --workspace DIR    host repo to mount at /workspace (default: none)
 #   --image NAME       image to run                 (default: agent-chat-worker)
@@ -31,7 +31,7 @@ die() { printf 'docker-worker: %s\n' "$*" >&2; exit 1; }
 [[ $# -ge 1 ]] || die "usage: bin/docker-worker.sh <channel-slug> [options]"
 SLUG="$1"; shift
 
-NAME="container-worker"
+NAME=""   # empty => the container's join auto-generates a unique name
 ROOT="$HOME/.claude/agent-chat"
 WORKSPACE=""
 IMAGE="agent-chat-worker"
@@ -56,15 +56,21 @@ done
 docker image inspect "$IMAGE" >/dev/null 2>&1 \
   || die "image '$IMAGE' not found — run: make docker-build"
 
+[[ -z "$NAME" || "$NAME" =~ ^[a-zA-Z0-9_-]{1,40}$ ]] || die "invalid --name '$NAME'"
 mkdir -p "$ROOT" || die "cannot create channel root $ROOT"
-CONTAINER="agent-chat-worker-$SLUG"
+# Container name includes --name when given, so several named workers can share
+# one channel without evicting each other. Without a name we fall back to the
+# slug (one auto-named convenience worker per channel; for a fleet, give --name
+# or use a coordinator spawn loop — see issue #17).
+CONTAINER="agent-chat-worker-$SLUG${NAME:+-$NAME}"
 docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
 
 # --- assemble run args -------------------------------------------------------
 run_args=( --name "$CONTAINER" --rm
            -e "AGENT_CHAT_CHANNEL=$SLUG"
-           -e "AGENT_CHAT_WORKER_NAME=$NAME"
            -v "$ROOT:/channel" )
+# Only pin a name when explicitly given; otherwise let the container auto-name.
+[[ -n "$NAME" ]] && run_args+=( -e "AGENT_CHAT_WORKER_NAME=$NAME" )
 
 [[ -n "$WORKSPACE" ]] && run_args+=( -v "$WORKSPACE:/workspace" )
 [[ -n "$GROUP_ADD" ]] && run_args+=( --group-add "$GROUP_ADD" )
@@ -93,7 +99,7 @@ else
 fi
 
 # --- launch ------------------------------------------------------------------
-echo "docker-worker: starting '$NAME' on channel '$SLUG' (root $ROOT)"
+echo "docker-worker: starting '${NAME:-<auto-named>}' on channel '$SLUG' (root $ROOT)"
 docker run $DETACH "${run_args[@]}" "$IMAGE"
 
 if [[ -n "$DETACH" ]]; then

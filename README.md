@@ -126,6 +126,11 @@ docker logs -f agent-chat-worker-<slug>                                 # entryp
 docker rm -f agent-chat-worker-<slug>                                   # stop
 ```
 
+By default the worker lets the channel **auto-generate its name** (machine-random,
+collision-safe), so you don't have to invent one. Pass `--name NAME` to pin it;
+the container is then `agent-chat-worker-<slug>-<name>`, letting several named
+workers share one channel without evicting each other.
+
 **Channel-mount permissions (uid/gid).** The worker runs as a dedicated,
 non-root, **non-human** service user (`worker`, uid `65532` by default —
 deliberately outside the host's human range so it can't silently share a real
