@@ -44,6 +44,11 @@ so **add the new section before cutting a release**.
   temp file existed (the `CLAUDE_CODE_OAUTH_TOKEN` / `--api-key` auth paths),
   so the launcher reported failure despite the worker starting fine. The trap is
   now an `if` block that always exits 0.
+- **Corrected the worker auto-mode guidance in `SKILL.md`.** It claimed a
+  `## Auto Mode Active` system reminder lands in context when auto mode turns on;
+  no such signal reliably exists (investigated in #17). Workers are now told they
+  can't detect their mode from context and should confirm with their user at
+  setup — or run as a container, which is unattended by construction.
 
 ## v0.11.1
 

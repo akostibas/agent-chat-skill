@@ -12,8 +12,9 @@ its Claude Code session isn't in auto mode** — it stops to ask a human who isn
 watching. The proposed fix was to *detect* the mode from context and adapt. That
 investigation came back empty: no `<system-reminder>`, env var, or marker
 reliably distinguishes auto mode in this build, so behavior can't be gated on it.
-(The "`## Auto Mode Active` reminder" assumed by [[ADR-0002]] and `SKILL.md` does
-not actually arrive — a separate doc-correction follow-up on #17.)
+(The "`## Auto Mode Active` reminder" assumed by [[ADR-0002]] does not actually
+arrive; `SKILL.md`'s worker guidance was corrected to stop claiming a detectable
+in-context signal. [[ADR-0002]] stays as its point-in-time record.)
 
 Meanwhile [[ADR-0006]] gave us a containerized worker that runs
 `--dangerously-skip-permissions` — **unattended by construction**. That reframes
