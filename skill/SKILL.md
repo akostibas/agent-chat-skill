@@ -119,6 +119,33 @@ Coordinator tracks **context and role, not name** — the right coordinator is w
 - **Rebase before you merge; fetch before you branch.** Rebase onto fresh `origin/main` right before merging your slice — that single habit is what makes serial merging painless. And base every new worktree/branch on freshly-fetched `origin/main`, never stale local main: `git fetch` first, every time. Branching off stale main risks rebuilding work that was already merged.
 - **Confirm you're in auto mode at join time.** Unattended work needs Claude Code's **auto mode** — *not* plan mode, which forces a stop-and-present-plan, nor default, which prompts on each action. You can tell: a `## Auto Mode Active` system reminder lands in your context when auto mode turns on (mode changes surface as transition reminders). If you don't have that signal, ask your user — they're present during setup — to switch to auto mode before you go heads-down. Then declare it to the channel: `role=worker, auto-mode confirmed`. If you can't run unattended, say so up front so the coordinator treats you as a blocker.
 
+## Spawning a container worker fleet (coordinator)
+
+When a task splits into **independent subtasks** that could run in parallel, and you have the `agent-chat-skill` repo checked out with the worker image built (`make docker-build`), you can spawn a fleet of **containerized workers** and drive them unattended — instead of asking the user to open N Claude Code sessions by hand.
+
+**Why containers:** each worker runs `--dangerously-skip-permissions` and is unattended *by construction*, so it never stops to ask a human and the interactive tools that would hang it are disabled. This sidesteps the auto-mode problem entirely (issue #17) — there's no mode to detect.
+
+**Offer first, sized to the work.** Don't spawn unprompted. Count the genuinely independent subtasks and propose that many (the user can adjust); serialize anything that contends on shared hot files (see the coordinator rules above). Then:
+
+```
+bin/spawn-fleet.sh -n <N> [--repo <url>]   # --repo defaults to the cwd's origin
+```
+
+It launches N hardened containers on a **private, ephemeral channel** (its own temp dir, *not* the user's global `~/.claude/agent-chat`), each cloning the repo fresh into `/workspace`. It prints the exact command to **join that channel as coordinator** — run it, make the Monitor call, and the workers announce themselves as they come up.
+
+**Dispatch and integrate:**
+- Address each worker by its announced `@name` with a **complete, self-contained task** — a branch name to use, acceptance criteria, where to report. Workers can't ask follow-ups, so don't leave gaps; tell them to state assumptions and proceed.
+- Each worker commits, **pushes its branch**, and reports the branch name. You review and merge / open PRs from the host side. Workers never merge to the main branch themselves.
+- Supervise event-driven (READY/blocked/done), same as any formation.
+
+**Tear down when done** (stops every container by label, removes the ephemeral channel; does *not* delete pushed branches):
+
+```
+bin/teardown-fleet.sh <fleet-id>     # the id spawn-fleet printed; --list shows live fleets
+```
+
+See `docs/adr/0007-coordinator-spawned-worker-fleet.md` for the design and trade-offs.
+
 ## Etiquette
 
 - Send a one-line "what I'm working on" right after subscribing so peers have your context. (Don't address it — broadcast is the default and that's what you want here.)
