@@ -78,6 +78,8 @@ func cmdJoin(args []string) {
 		}
 	}
 
+	streamCmd = withChannelRoot(streamCmd, os.Getenv("AGENT_CHAT_ROOT"))
+
 	if generated {
 		fmt.Printf("Joined channel %q as %q (auto-generated — no --as given).\n", slug, as)
 		fmt.Printf("Use %q as your name from now on, and tell the user.\n\n", as)
@@ -91,6 +93,20 @@ func cmdJoin(args []string) {
 	fmt.Printf("  command: %s\n\n", streamCmd)
 	fmt.Printf("After that, peer messages will arrive automatically as notifications for the\n")
 	fmt.Printf("rest of this session. Do not call Monitor again for this channel.\n")
+}
+
+// withChannelRoot prefixes a Monitor stream command with the AGENT_CHAT_ROOT
+// env assignment when the channel lives under a non-default root (e.g. an
+// ephemeral container-fleet root). Without it, stream.sh resolves the channel
+// under the global root and fails with "no such channel". join already runs
+// under the right env, so it propagates that root into the printed command
+// verbatim. An empty root (the default global location) is left untouched.
+// See issue #18.
+func withChannelRoot(streamCmd, root string) string {
+	if root == "" {
+		return streamCmd
+	}
+	return fmt.Sprintf("AGENT_CHAT_ROOT=%q %s", root, streamCmd)
 }
 
 // claimGeneratedName retries machine-generated names until join claims one.
