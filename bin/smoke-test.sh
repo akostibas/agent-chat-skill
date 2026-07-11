@@ -182,4 +182,47 @@ if [[ "$got_mentions2" != '[]' ]]; then
   echo "FAIL: expected empty mentions (broadcast) for unrecognized token, got $got_mentions2" >&2; exit 2
 fi
 
-echo "PASS: build + relocated/spaced install + join/send/history round-trip + leave-on-teardown + stale-peer reaping + mention resolution."
+# --- Feedback poll round (open -> submit x2 -> tally -> close) ---
+
+echo "Testing feedback poll round..."
+fslug="smoke-feedback-$$"
+
+# A fresh channel has no open round: submit/tally must refuse.
+if bash "$skill_dir/feedback.sh" tally "$fslug" >/dev/null 2>&1; then
+  echo "FAIL: tally succeeded with no open round." >&2; exit 2
+fi
+
+bash "$skill_dir/feedback.sh" open "$fslug" --as opener >/dev/null
+
+# Two members submit; one item is a near-duplicate (case + spacing) of another.
+bash "$skill_dir/feedback.sh" submit "$fslug" --as opener <<<"mentions are confusing" >/dev/null
+bash "$skill_dir/feedback.sh" submit "$fslug" --as worker <<'EOF' >/dev/null
+join output too long
+Mentions are  Confusing
+EOF
+
+tally_out="$(bash "$skill_dir/feedback.sh" tally "$fslug" 2>&1)"
+if ! grep -qF "mentions are confusing" <<<"$tally_out" || ! grep -qF "join output too long" <<<"$tally_out"; then
+  echo "FAIL: tally missing expected candidate items." >&2
+  echo "----- tally -----" >&2; echo "$tally_out" >&2; exit 2
+fi
+# The duplicate must collapse: exactly 2 numbered candidates.
+tally_count="$(grep -cE '^  [0-9]+\. ' <<<"$tally_out" || true)"
+if [[ "$tally_count" -ne 2 ]]; then
+  echo "FAIL: expected 2 deduped candidates, got $tally_count." >&2
+  echo "----- tally -----" >&2; echo "$tally_out" >&2; exit 2
+fi
+
+# A second open while one is live must be refused.
+if bash "$skill_dir/feedback.sh" open "$fslug" --as opener >/dev/null 2>&1; then
+  echo "FAIL: opened a second round while one was already live." >&2; exit 2
+fi
+
+bash "$skill_dir/feedback.sh" close "$fslug" --as opener --outcome filed >/dev/null
+
+# After close, tally/submit see the round as closed.
+if bash "$skill_dir/feedback.sh" tally "$fslug" >/dev/null 2>&1; then
+  echo "FAIL: tally succeeded after the round was closed." >&2; exit 2
+fi
+
+echo "PASS: build + relocated/spaced install + join/send/history round-trip + leave-on-teardown + stale-peer reaping + mention resolution + feedback poll round."
