@@ -4,6 +4,31 @@ Release notes for agent-chat. Each release gets a `## vMAJOR.MINOR.PATCH`
 section; `bin/release.sh` uses the matching section as the GitHub release body,
 so **add the new section before cutting a release**.
 
+## v0.13.0
+
+### New features
+
+- **Feedback poll (#31).** Channels can now harvest agent-chat friction and
+  process-improvement ideas from live agents and turn them into GitHub issues,
+  rarely and with a human in the loop. See `docs/adr/0008-feedback-poll.md`.
+  - **Trigger (#33).** The join that *creates* a channel rolls once
+    (`AGENT_CHAT_FEEDBACK_RATE`, default `0.10`, `0` disables) and, on a hit,
+    opens a feedback round atomically with the first join record. It's a
+    once-per-channel decision — later joiners inherit it and never re-roll, so
+    the rate is a true per-channel 10% rather than compounding across joiners.
+    `join` nudges the agent to submit when (and only when) a round is open.
+  - **Primitive (#32).** New `feedback open|submit|tally|close` subcommands (and
+    a `feedback.sh` shim) over three additive, event-sourced record kinds
+    (`poll-open`/`poll-submit`/`poll-close`) tagged with a new `round` field.
+    `tally` returns the deduped candidate list; the `msg` wire schema is
+    unchanged (the field is omitted when empty).
+  - **Coordinator flow (#34).** `SKILL.md` guidance: one coordinator per round
+    dedups against existing issues, gets explicit user approval, files one issue
+    per item, and closes with a terminal outcome. Containerized workers with no
+    `gh` access fall back to posting the list into the channel for a human.
+  - New package API: `Channel.JoinNew` (Join delegates to it) plus the
+    `FeedbackRound` operations, for external Go peers.
+
 ## v0.12.1
 
 ### Bug fixes
