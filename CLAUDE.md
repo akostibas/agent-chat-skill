@@ -21,6 +21,12 @@ skill; the shell files in `skill/` are thin shims that exec it.
   (unit + smoke). Override the destination with `SKILL_DIR=...`.
 - `docs/adr/` — architectural decision records.
 
+## Story Output
+
+New stories/issues are filed as GitHub Issues in `akostibas/agent-chat-skill`
+(via `gh`). Use the `story-writer` skill; apply the `enhancement` label for
+feature work.
+
 ## Testing
 
 - `make test` (or `bin/smoke-test.sh`) — installs the skill into a throwaway
