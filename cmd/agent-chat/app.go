@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -65,6 +66,21 @@ func envInt(key string, def int) int {
 		return n
 	}
 	return def
+}
+
+// envFloat reads a non-negative float from the environment, falling back to def
+// when unset, unparseable, or negative. Zero is a valid value (it is not the
+// same as unset) so a rate of "0" can explicitly disable a feature.
+func envFloat(key string, def float64) float64 {
+	v := os.Getenv(key)
+	if v == "" {
+		return def
+	}
+	f, err := strconv.ParseFloat(v, 64)
+	if err != nil || f < 0 {
+		return def
+	}
+	return f
 }
 
 // sweepOldChannels removes channel dirs whose log is older than TTL_DAYS.

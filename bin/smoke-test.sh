@@ -225,4 +225,37 @@ if bash "$skill_dir/feedback.sh" tally "$fslug" >/dev/null 2>&1; then
   echo "FAIL: tally succeeded after the round was closed." >&2; exit 2
 fi
 
-echo "PASS: build + relocated/spaced install + join/send/history round-trip + leave-on-teardown + stale-peer reaping + mention resolution + feedback poll round."
+# --- Feedback poll trigger on join (#33) ---
+
+echo "Testing feedback poll trigger on join..."
+
+# RATE=1 forces the channel-creating join to open a round, and its output must
+# nudge the agent to submit.
+tslug="smoke-trigger-$$"
+trig_out="$(AGENT_CHAT_FEEDBACK_RATE=1 bash "$skill_dir/join.sh" "$tslug" --as first 2>&1)"
+if ! grep -qF "feedback round is open" <<<"$trig_out"; then
+  echo "FAIL: forced-rate join did not nudge about the open round." >&2
+  echo "----- join output -----" >&2; echo "$trig_out" >&2; exit 2
+fi
+if ! bash "$skill_dir/feedback.sh" tally "$tslug" >/dev/null 2>&1; then
+  echo "FAIL: no round open after a forced-rate creating join." >&2; exit 2
+fi
+
+# A second join (also forced) must NOT open a second round: exactly one poll-open.
+AGENT_CHAT_FEEDBACK_RATE=1 bash "$skill_dir/join.sh" "$tslug" --as second >/dev/null 2>&1
+opens="$(bash "$skill_dir/history.sh" "$tslug" 2>&1 | grep -cF "[poll-open]" || true)"
+if [[ "$opens" -ne 1 ]]; then
+  echo "FAIL: expected exactly 1 poll-open after two joins, got $opens." >&2; exit 2
+fi
+
+# RATE=0 disables entirely: a creating join opens no round and gives no nudge.
+zslug="smoke-notrigger-$$"
+noz_out="$(AGENT_CHAT_FEEDBACK_RATE=0 bash "$skill_dir/join.sh" "$zslug" --as solo 2>&1)"
+if grep -qF "feedback round is open" <<<"$noz_out"; then
+  echo "FAIL: rate=0 join still nudged about a round." >&2; exit 2
+fi
+if bash "$skill_dir/feedback.sh" tally "$zslug" >/dev/null 2>&1; then
+  echo "FAIL: rate=0 join opened a round." >&2; exit 2
+fi
+
+echo "PASS: build + relocated/spaced install + join/send/history round-trip + leave-on-teardown + stale-peer reaping + mention resolution + feedback poll round + join trigger."

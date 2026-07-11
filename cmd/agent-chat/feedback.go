@@ -58,9 +58,7 @@ func feedbackOpen(args []string) {
 	defer cancel()
 
 	roundID := generateRoundID()
-	body := fmt.Sprintf("Feedback round open. Report agent-chat friction or process "+
-		"improvements with: feedback submit %s --as <you> (one item per line on stdin).", slug)
-	if err := c.OpenFeedbackRound(ctx, as, roundID, body); err != nil {
+	if err := c.OpenFeedbackRound(ctx, as, roundID, feedbackOpenBody(slug)); err != nil {
 		if errors.Is(err, channel.ErrRoundOpen) {
 			fmt.Fprintf(os.Stderr, "agent-chat: a feedback round is already open on %q\n", slug)
 		} else {
@@ -190,6 +188,32 @@ func countItems(body string) int {
 		}
 	}
 	return n
+}
+
+// defaultFeedbackRate is the probability that the channel-creating join opens a
+// feedback round. Override with AGENT_CHAT_FEEDBACK_RATE; "0" disables entirely.
+const defaultFeedbackRate = 0.10
+
+// feedbackOpenBody is the announcement written into the poll-open record. Shared
+// by the manual `feedback open` command and the join-time trigger (#33).
+func feedbackOpenBody(slug string) string {
+	return fmt.Sprintf("Feedback round open. Report agent-chat friction or process "+
+		"improvements with: feedback submit %s --as <you> (one item per line on stdin).", slug)
+}
+
+// feedbackRoll reports whether a rate-probability coin flip comes up heads,
+// drawing from the CSPRNG (randIndex). rate <= 0 never hits (disabled); rate >= 1
+// always hits (forces a round — the seam smoke tests use). In between, it scales
+// the probability over a million buckets for fine resolution.
+func feedbackRoll(rate float64) bool {
+	if rate <= 0 {
+		return false
+	}
+	if rate >= 1 {
+		return true
+	}
+	const scale = 1_000_000
+	return randIndex(scale) < int(rate*scale)
 }
 
 // generateRoundID returns a short opaque round id ("r" + 8 hex chars) from the

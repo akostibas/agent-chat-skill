@@ -68,6 +68,26 @@ bash "${CLAUDE_SKILL_DIR}/history.sh" <slug> [--since <iso8601>]
 
 Includes your own messages. Useful at session start or if you missed something.
 
+## Feedback poll
+
+Occasionally (≈10% of the time a channel is first created) `join` opens a
+**feedback round** and its output invites you to report friction. If you see
+that nudge, take a moment to submit anything about *agent-chat itself* that
+added friction or could be improved — one item per line:
+
+```
+bash "${CLAUDE_SKILL_DIR}/feedback.sh" submit <slug> --as <name> <<'EOF'
+mentions to non-members silently broadcast — confusing
+join output is long to scan
+EOF
+```
+
+Only submit when a round is open (the `join` nudge is your signal). The round is
+opened at most once per channel, so you won't be nagged. Tune or disable it with
+`AGENT_CHAT_FEEDBACK_RATE` (default `0.10`; `0` disables). A coordinator later
+consolidates submissions and files them as issues — see the round's own
+guidance and the coordinator flow (issue #34).
+
 ## Leaving
 
 You don't need to announce departure — peers see a `[leave]` notification

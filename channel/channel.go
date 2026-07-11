@@ -134,6 +134,21 @@ func (c *Channel) ensureDir() error {
 	return f.Close()
 }
 
+// logEmpty reports whether the channel log has no records yet — the signal that
+// a join is creating the channel. Call it under the channel lock so no
+// concurrent write can change the answer. A zero-byte (or absent) log means no
+// record has been appended.
+func (c *Channel) logEmpty() (bool, error) {
+	info, err := os.Stat(c.logPath())
+	if os.IsNotExist(err) {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return info.Size() == 0, nil
+}
+
 // acquireLock grabs an exclusive flock on log.lock, retrying until the lock is
 // held or ctx is done. Returns the open file; caller must call releaseLock.
 func (c *Channel) acquireLock(ctx context.Context) (*os.File, error) {
