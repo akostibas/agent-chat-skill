@@ -14,7 +14,7 @@
 # so the baked toolchain MUST be ≥1.25.9 or its build hard-fails (with
 # GOTOOLCHAIN=local) or silently downloads (with =auto). This deliberately tracks
 # the workload, overriding the usual previous-major default.
-FROM golang:1.25-bookworm AS build
+FROM golang:1.26-bookworm AS build
 WORKDIR /src
 # Module files first for layer caching, then sources. The CLI imports the
 # `channel` package, so both source trees are needed (stdlib only — no go.sum).
