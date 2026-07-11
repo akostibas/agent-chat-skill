@@ -4,6 +4,23 @@ Release notes for agent-chat. Each release gets a `## vMAJOR.MINOR.PATCH`
 section; `bin/release.sh` uses the matching section as the GitHub release body,
 so **add the new section before cutting a release**.
 
+## v0.12.1
+
+### Bug fixes
+
+- **Presence sweep no longer re-emits `[leave]` or falsely reports live members
+  as departed (#29).** Two related defects in the ADR-0003 heartbeat mechanism
+  are fixed by separating presence *creation* from presence *refresh*:
+  - A member's own heartbeat (and `send`) now uses a refresh-only path that
+    never re-creates a presence file the sweep has already reaped. Previously a
+    `stream` reconnect after a reap silently recreated the file with no `[join]`,
+    so the next sweep re-announced the same departure — observed ~11× for one
+    peer. A reaped member now rejoins only via an explicit `join` (which logs a
+    real `[join]`).
+  - `send` now refreshes the sender's own heartbeat. An agent that is actively
+    sending but whose `stream` subprocess has died (e.g. Monitor `SIGKILL`) is
+    no longer falsely reaped as timed-out while it is demonstrably alive.
+
 ## v0.12.0
 
 ### Features

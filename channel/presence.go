@@ -61,10 +61,14 @@ func (c *Channel) ActiveMembers() []string {
 	return names
 }
 
-// TouchPresence refreshes this peer's heartbeat file, creating it on first
-// call. The caller must invoke it on its own cadence — there is no background
-// heartbeat — at an interval shorter than AGENT_CHAT_STALE_SECS, or peers will
-// reap it as departed.
+// TouchPresence registers this peer as a member, creating its heartbeat file on
+// first call and refreshing the mtime thereafter. It is the explicit "I am
+// joining" act: Join calls it under lock, and an external Go peer calls it to
+// register. Because it creates, it also *resurrects* — do not use it for
+// routine heartbeats of an already-registered peer, or a member the sweep has
+// reaped would silently reappear with no [join] record (see RefreshPresence and
+// issue #29). The caller must refresh on its own cadence — there is no
+// background heartbeat — shorter than AGENT_CHAT_STALE_SECS, or peers reap it.
 func (c *Channel) TouchPresence(name string) error {
 	if err := os.MkdirAll(c.presDir(), 0755); err != nil {
 		return err
@@ -81,17 +85,39 @@ func (c *Channel) TouchPresence(name string) error {
 	return nil
 }
 
-// RunHeartbeat keeps this peer present until ctx is canceled: it touches
-// presence once up front, then on every AGENT_CHAT_HEARTBEAT_SECS tick refreshes
-// its own presence and reaps any peer that has gone stale. It blocks until ctx
-// is done, so callers run it in a goroutine and own its lifetime via the
-// context. This is the canonical heartbeat loop — any long-running member (the
-// stream runner, an embedding server) should drive presence through it rather
-// than re-implementing the ticker. It does NOT remove presence or post a leave
-// on exit; pair a clean shutdown with RemovePresence + Leave.
+// RefreshPresence bumps this peer's heartbeat mtime *only if it is already
+// registered* — it never creates the file. This is the routine-heartbeat
+// counterpart to TouchPresence: once the stale sweep has reaped a peer (removed
+// its presence file and posted a [leave]), a bare heartbeat must not resurrect
+// it, or the sweep re-reaps it on the next pass and the same departure is
+// re-announced forever with no intervening [join] (issue #29). A reaped member
+// rejoins only by an explicit TouchPresence/Join, which logs a real [join]. A
+// missing file is not an error — the peer is simply gone until it re-registers.
+func (c *Channel) RefreshPresence(name string) error {
+	now := time.Now()
+	if err := os.Chtimes(c.presFile(name), now, now); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
+// RunHeartbeat keeps an already-registered peer present until ctx is canceled:
+// on every AGENT_CHAT_HEARTBEAT_SECS tick it refreshes its own presence and
+// reaps any peer that has gone stale. It blocks until ctx is done, so callers
+// run it in a goroutine and own its lifetime via the context. This is the
+// canonical heartbeat loop — any long-running member (the stream runner, an
+// embedding server) should drive presence through it rather than re-implementing
+// the ticker.
+//
+// It refreshes but never creates presence (RefreshPresence): the caller must
+// register first via Join or TouchPresence. This is deliberate — a heartbeat
+// that recreated a reaped peer's file would resurrect it with no [join] and the
+// sweep would re-announce its departure on the next pass (issue #29). It does
+// NOT remove presence or post a leave on exit; pair a clean shutdown with
+// RemovePresence + Leave.
 func (c *Channel) RunHeartbeat(ctx context.Context, name string) {
 	heartbeatSecs := envInt("AGENT_CHAT_HEARTBEAT_SECS", defaultHeartbeatSecs)
-	_ = c.TouchPresence(name)
+	_ = c.RefreshPresence(name)
 	ticker := time.NewTicker(time.Duration(heartbeatSecs) * time.Second)
 	defer ticker.Stop()
 	for {
@@ -99,7 +125,7 @@ func (c *Channel) RunHeartbeat(ctx context.Context, name string) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			_ = c.TouchPresence(name)
+			_ = c.RefreshPresence(name)
 			c.ReapStale(name)
 		}
 	}
