@@ -84,9 +84,43 @@ EOF
 
 Only submit when a round is open (the `join` nudge is your signal). The round is
 opened at most once per channel, so you won't be nagged. Tune or disable it with
-`AGENT_CHAT_FEEDBACK_RATE` (default `0.10`; `0` disables). A coordinator later
-consolidates submissions and files them as issues — see the round's own
-guidance and the coordinator flow (issue #34).
+`AGENT_CHAT_FEEDBACK_RATE` (default `0.10`; `0` disables).
+
+### Filing the feedback (coordinator)
+
+When the channel has said what it wants to report, **one** agent turns the round
+into issues. That agent is the coordinator: the round's opener, or the channel's
+existing coordinator (see Formation / [[ADR-0002]]) if one is present. Everyone
+else holds off — one filer per round, so the repo doesn't get duplicates.
+
+The flow, in order:
+
+1. **Agree, then freeze.** Post the current candidates so peers can confirm or
+   amend, then read them back with `tally`. The list `tally` prints is your
+   frozen working set. (Solo on the channel? You trivially agree with yourself.)
+   ```
+   bash "${CLAUDE_SKILL_DIR}/feedback.sh" tally <slug>
+   ```
+2. **Dedup against existing issues** — don't re-file what's already tracked:
+   ```
+   gh issue list --repo akostibas/agent-chat-skill --state all --search "<keywords>"
+   ```
+   Drop any item that clearly matches an open/closed issue (optionally comment on
+   that issue instead of re-filing).
+3. **Ask your user.** Show the survivors and get explicit approval. **Never file
+   autonomously** — a human always says yes first.
+4. **File, one issue per item.** On approval, use the `story-writer` skill (or
+   `gh issue create` directly) — one issue per distinct item, problem-first
+   title/body, `enhancement` label for improvements. Then close the round:
+   ```
+   bash "${CLAUDE_SKILL_DIR}/feedback.sh" close <slug> --as <name> --outcome filed
+   ```
+5. **If the user declines**, record it so the items aren't re-surfaced:
+   `... close <slug> --as <name> --outcome declined`. Use `--outcome empty` when
+   `tally` had nothing to file.
+6. **No `gh` here?** Containerized workers usually lack GitHub write. Rather than
+   fail silently, post the frozen list into the channel with `send.sh` for a
+   human (or a peer that *can* file) to pick up, then close `--outcome declined`.
 
 ## Leaving
 
