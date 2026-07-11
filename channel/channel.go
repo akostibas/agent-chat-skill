@@ -54,6 +54,10 @@ type Record struct {
 	Kind     string   `json:"kind"`
 	Body     string   `json:"body"`
 	Mentions []string `json:"mentions,omitempty"`
+	// Round tags a record with a feedback-poll round id. Set only on the
+	// poll-open/poll-submit/poll-close kinds (see feedback.go); omitted (and thus
+	// invisible in the golden schema) on ordinary join/leave/msg records.
+	Round string `json:"round,omitempty"`
 }
 
 // Cursor marks a position in the append-only log. The zero value is the start
