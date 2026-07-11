@@ -26,7 +26,7 @@ RUN CGO_ENABLED=0 go build -o /out/agent-chat ./cmd/agent-chat/
 # --- Stage 2: runtime -------------------------------------------------------
 # node:24 (current LTS) — both stages are bookworm so the copied Go toolchain is
 # ABI-compatible with the runtime's glibc.
-FROM node:24-bookworm-slim
+FROM node:26-bookworm-slim
 
 # Runtime + task toolchain. The worker runs as a non-root user with no sudo, so
 # everything a dispatched task might need must be baked in here (issue #8 audit):
