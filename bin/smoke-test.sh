@@ -143,6 +143,19 @@ if [[ "$before" != "$after" ]]; then
   echo "FAIL: stale peer reaped more than once ($before -> $after leave lines)." >&2; exit 2
 fi
 
+# A send by a reaped member must NOT resurrect its presence (refresh-only), so
+# the sweep can't re-announce the same departure with no join (issue #29).
+bash "$skill_dir/send.sh" "$slug" --as "$ghost" <<<"ghost tries to speak" >/dev/null
+if [[ -e "$presence_dir/$ghost" ]]; then
+  echo "FAIL: a send resurrected reaped peer '$ghost' presence (should require re-join)." >&2; exit 2
+fi
+# No new leave for the ghost: exactly one [leave] header line, ever (the ghost's
+# own msg is fine — sends are allowed; only presence resurrection is forbidden).
+ghost_leaves="$(bash "$skill_dir/history.sh" "$slug" 2>&1 | grep -F "$ghost" | grep -cF "[leave]" || true)"
+if [[ "$ghost_leaves" -ne 1 ]]; then
+  echo "FAIL: expected exactly 1 leave for reaped peer '$ghost', got $ghost_leaves." >&2; exit 2
+fi
+
 # --- Mention resolution ---
 
 echo "Testing mention resolution against the roster..."

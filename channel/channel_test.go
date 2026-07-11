@@ -517,6 +517,11 @@ func TestRunHeartbeat(t *testing.T) {
 	// Tick fast so the loop refreshes within the test's patience.
 	t.Setenv("AGENT_CHAT_HEARTBEAT_SECS", "1")
 
+	// RunHeartbeat refreshes but never creates — register first (as Join would).
+	if err := c.TouchPresence("worker"); err != nil {
+		t.Fatal(err)
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
@@ -524,25 +529,13 @@ func TestRunHeartbeat(t *testing.T) {
 		close(done)
 	}()
 
-	// Presence is established up front, before the first tick.
-	deadline := time.Now().Add(2 * time.Second)
-	for {
-		if _, err := os.Stat(c.presFile("worker")); err == nil {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("RunHeartbeat did not create presence file")
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-
 	// A tick refreshes the heartbeat: backdate the file and confirm the loop
 	// bumps its mod-time forward on its own.
 	old := time.Now().Add(-time.Hour)
 	if err := os.Chtimes(c.presFile("worker"), old, old); err != nil {
 		t.Fatal(err)
 	}
-	deadline = time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(3 * time.Second)
 	for {
 		info, err := os.Stat(c.presFile("worker"))
 		if err == nil && info.ModTime().After(old.Add(time.Minute)) {
@@ -561,6 +554,88 @@ func TestRunHeartbeat(t *testing.T) {
 	case <-done:
 	case <-time.After(2 * time.Second):
 		t.Fatal("RunHeartbeat did not return after context cancel")
+	}
+}
+
+// RefreshPresence bumps an existing heartbeat but never creates one — a reaped
+// peer stays gone until it re-registers (issue #29 defect 1).
+func TestRefreshPresenceDoesNotResurrect(t *testing.T) {
+	c := testChannel(t)
+	if err := c.ensureDir(); err != nil {
+		t.Fatal(err)
+	}
+
+	// No presence file yet: refresh is a no-op, not a create.
+	if err := c.RefreshPresence("ghost"); err != nil {
+		t.Fatalf("RefreshPresence on a missing peer should be a no-op: %v", err)
+	}
+	if _, err := os.Stat(c.presFile("ghost")); !os.IsNotExist(err) {
+		t.Fatal("RefreshPresence must not create a presence file")
+	}
+
+	// Once registered, refresh bumps the (backdated) mtime forward.
+	if err := c.TouchPresence("worker"); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(c.presFile("worker"), old, old); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.RefreshPresence("worker"); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(c.presFile("worker"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !info.ModTime().After(old.Add(time.Minute)) {
+		t.Error("RefreshPresence did not bump the mtime of a registered peer")
+	}
+}
+
+// After a peer is reaped, a heartbeat must not resurrect it, so the sweep does
+// not re-announce the same departure with no intervening join (issue #29
+// defect 1). This is the regression test for the ~11× repeated [leave].
+func TestReapedPeerNotReReapedByHeartbeat(t *testing.T) {
+	c := testChannel(t)
+	if err := c.ensureDir(); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AGENT_CHAT_STALE_SECS", "30")
+
+	// A peer registers, then goes stale and is reaped once.
+	if err := c.TouchPresence("ghost"); err != nil {
+		t.Fatal(err)
+	}
+	stale := time.Now().Add(-10 * time.Minute)
+	if err := os.Chtimes(c.presFile("ghost"), stale, stale); err != nil {
+		t.Fatal(err)
+	}
+	c.ReapStale("live")
+
+	// The ghost's own stream reconnects and heartbeats. Because RefreshPresence
+	// (what RunHeartbeat drives) never re-creates, no file reappears...
+	if err := c.RefreshPresence("ghost"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(c.presFile("ghost")); !os.IsNotExist(err) {
+		t.Fatal("a heartbeat resurrected a reaped peer's presence file")
+	}
+	// ...so a second sweep finds nothing to reap and posts no further leave.
+	c.ReapStale("live")
+
+	records, err := c.Read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var leaves int
+	for _, r := range records {
+		if r.Sender == "ghost" && r.Kind == "leave" {
+			leaves++
+		}
+	}
+	if leaves != 1 {
+		t.Errorf("expected exactly 1 leave for a reaped peer, got %d", leaves)
 	}
 }
 

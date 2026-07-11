@@ -46,6 +46,11 @@ func cmdSend(args []string) {
 		os.Exit(1)
 	}
 
+	// A member that is actively sending is, by definition, alive — keep its
+	// heartbeat fresh so peers don't falsely reap it between stream beats (issue
+	// #29). Refresh-only: a send never resurrects an already-reaped member (it
+	// must re-join for that), matching the heartbeat's tombstone semantics.
+	_ = c.RefreshPresence(as)
 	c.ReapStale(as)
 
 	fmt.Printf("sent (%d bytes) to %q as %q\n", len(raw), slug, as)
