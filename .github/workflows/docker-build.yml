@@ -1,0 +1,44 @@
+# Build the containerized worker image on PRs/pushes that touch it — WITHOUT
+# pushing. publish-worker.yml only builds on version tags, so a base-image or
+# build-action bump (e.g. the golang/node/docker-action Dependabot PRs) would
+# otherwise sit unvalidated until release. This gates exactly that: the same
+# build the publish workflow runs, native arm64, push disabled.
+#
+# Path-filtered to docker/** and this workflow: the image copies in the Go
+# sources too, but their *correctness* is already covered by ci.yml's `go build`
+# — the only thing this adds is validating the base images and the apt/npm
+# install layers, which change only via docker/Dockerfile.
+name: Docker build
+
+on:
+  pull_request:
+    paths:
+      - "docker/**"
+      - ".github/workflows/docker-build.yml"
+  push:
+    branches: [main]
+    paths:
+      - "docker/**"
+      - ".github/workflows/docker-build.yml"
+
+concurrency:
+  group: docker-build-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04-arm # native arm64, matches the published image
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - name: Build worker image (no push)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: linux/arm64
+          push: false
+          provenance: false
