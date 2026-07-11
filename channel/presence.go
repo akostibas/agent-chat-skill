@@ -147,28 +147,73 @@ func (c *Channel) RunHeartbeat(ctx context.Context, name string) {
 // only by a timed-out (e.g. SIGKILLed) peer is free to reclaim, so ghosts don't
 // permanently burn names.
 func (c *Channel) Join(ctx context.Context, r Record) (string, error) {
+	res, err := c.JoinNew(ctx, r, nil)
+	return res.Name, err
+}
+
+// PollOpen requests that a feedback round be opened atomically with a
+// channel-creating join. Pass a non-nil *PollOpen to JoinNew; the round is
+// opened only if that join actually creates the channel. Nil means "no round".
+type PollOpen struct {
+	RoundID string
+	Body    string
+}
+
+// JoinResult reports the outcome of JoinNew.
+type JoinResult struct {
+	Name    string // the claimed identity
+	Created bool   // this join created the channel (the log was empty under the lock)
+	Opened  bool   // a feedback round was opened as part of this join
+}
+
+// JoinNew is Join plus once-per-channel creation semantics. Under the channel
+// lock it (1) records whether the log was empty — i.e. whether this join is the
+// one creating the channel — (2) performs the same collision-safe roster check +
+// presence claim + join append as Join, and (3) if the join created the channel
+// and open != nil, appends a poll-open in the SAME lock. That makes the feedback
+// round open atomically with the first join record, so two racing first-joiners
+// cannot both open a round: the flock serializes them and only the one that
+// writes into an empty log sees Created == true (issue #33).
+func (c *Channel) JoinNew(ctx context.Context, r Record, open *PollOpen) (JoinResult, error) {
 	if err := c.ensureDir(); err != nil {
-		return "", err
+		return JoinResult{}, err
 	}
 	lockF, err := c.acquireLock(ctx)
 	if err != nil {
-		return "", err
+		return JoinResult{}, err
 	}
 	defer releaseLock(lockF)
 
+	empty, err := c.logEmpty()
+	if err != nil {
+		return JoinResult{}, err
+	}
 	if slices.Contains(c.ActiveMembers(), r.Sender) {
-		return "", ErrNameTaken
+		return JoinResult{}, ErrNameTaken
 	}
 	if err := c.TouchPresence(r.Sender); err != nil {
-		return "", err
+		return JoinResult{}, err
 	}
 	if r.Ts == "" {
 		r.Ts = isoNow()
 	}
 	if err := c.appendLocked(r); err != nil {
-		return "", err
+		return JoinResult{}, err
 	}
-	return r.Sender, nil
+	res := JoinResult{Name: r.Sender, Created: empty}
+	if empty && open != nil {
+		if err := c.appendLocked(Record{
+			Ts:     isoNow(),
+			Sender: r.Sender,
+			Kind:   KindPollOpen,
+			Round:  open.RoundID,
+			Body:   open.Body,
+		}); err != nil {
+			return res, err
+		}
+		res.Opened = true
+	}
+	return res, nil
 }
 
 // RemovePresence deletes this peer's presence file. Call it alongside Leave on
