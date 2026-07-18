@@ -22,6 +22,8 @@ func main() {
 		cmdStream(os.Args[2:])
 	case "feedback":
 		cmdFeedback(os.Args[2:])
+	case "update":
+		cmdUpdate(os.Args[2:])
 	default:
 		fmt.Fprintf(os.Stderr, "agent-chat: unknown command %q\n", os.Args[1])
 		usage()
@@ -37,7 +39,8 @@ Commands:
   send    <slug> --as <name>          (body on stdin)
   history <slug> [--since <iso8601>]
   stream  <slug> <name>               (invoked by Monitor)
-  feedback <subcommand> <slug> ...    (open|submit|tally|close a feedback round)`)
+  feedback <subcommand> <slug> ...    (open|submit|tally|close a feedback round)
+  update  [--yes]                     (upgrade the installed skill to the latest release)`)
 }
 
 // selfDir returns the directory containing this binary, used to locate shim
