@@ -1,9 +1,7 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -123,24 +121,12 @@ func checkForUpdate(skillDir string) {
 	}
 	_ = os.WriteFile(stamp, nil, 0600)
 
-	repo := os.Getenv("AGENT_CHAT_REPO")
-	if repo == "" {
-		repo = "akostibas/agent-chat-skill"
-	}
-	client := &http.Client{Timeout: 2 * time.Second}
-	resp, err := client.Get("https://api.github.com/repos/" + repo + "/releases/latest") //nolint:noctx
+	latest, err := latestReleaseTag(updateRepo(), 2*time.Second)
 	if err != nil {
 		return
 	}
-	defer func() { _ = resp.Body.Close() }()
-	var result struct {
-		TagName string `json:"tag_name"`
-	}
-	if json.NewDecoder(resp.Body).Decode(&result) != nil {
-		return
-	}
-	if result.TagName != "" && result.TagName != current {
+	if latest != current {
 		fmt.Fprintf(os.Stderr, "agent-chat: a newer release is available (%s → %s). To upgrade: bash %s/update.sh\n",
-			current, result.TagName, skillDir)
+			current, latest, skillDir)
 	}
 }
