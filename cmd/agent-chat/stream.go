@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"slices"
@@ -61,7 +62,7 @@ func cmdStream(args []string) {
 
 	// Tail the log from the current end — the same poll loop an external peer
 	// would run — emitting peer messages to stdout.
-	if err := tailAndEmit(ctx, c, name); err != nil && err != context.Canceled {
+	if err := tailAndEmit(ctx, c, slug, name); err != nil && err != context.Canceled {
 		fmt.Fprintf(os.Stderr, "agent-chat: stream: %v\n", err)
 	}
 }
@@ -69,7 +70,7 @@ func cmdStream(args []string) {
 // tailAndEmit polls the channel from its current end via ReadSince and writes
 // filtered, formatted records to stdout. Blocks until ctx is canceled or a read
 // error occurs.
-func tailAndEmit(ctx context.Context, c *channel.Channel, me string) error {
+func tailAndEmit(ctx context.Context, c *channel.Channel, slug, me string) error {
 	cur, err := c.End()
 	if err != nil {
 		return err
@@ -95,7 +96,7 @@ func tailAndEmit(ctx context.Context, c *channel.Channel, me string) error {
 			if r.Kind == "msg" && len(r.Mentions) > 0 && !slices.Contains(r.Mentions, me) {
 				continue
 			}
-			emitStreamRecord(r)
+			emitStreamRecord(os.Stdout, r, slug)
 		}
 		if len(recs) == 0 {
 			time.Sleep(100 * time.Millisecond)
@@ -103,12 +104,85 @@ func tailAndEmit(ctx context.Context, c *channel.Channel, me string) error {
 	}
 }
 
-// emitStreamRecord writes one record to stdout in the same format as stream.sh:
+// Rendered-size budgets for the notification path. The Claude Code harness
+// clips Monitor events twice — each line at ~600 rendered chars and the whole
+// event at ~2.5K rendered chars — where "rendered" counts the per-line
+// "sender │ " prefix and HTML entity escaping (< > & become &lt; &gt; &amp;).
+// Staying under both means peers receive messages whole instead of cut
+// mid-word by the harness; oversize records are cut deliberately at a line
+// boundary with an exact recovery command appended (issue #37).
+const (
+	lineBudget    = 400  // max rendered chars per emitted line, prefix included
+	eventBudget   = 2000 // max rendered chars per record before self-truncating
+	footerReserve = 250  // rendered chars held back for the recovery footer
+)
+
+// renderedWidth returns the size of s as the notification path renders it,
+// counting entity-escaped runes at their escaped width.
+func renderedWidth(s string) int {
+	n := 0
+	for _, r := range s {
+		n += runeWidth(r)
+	}
+	return n
+}
+
+func runeWidth(r rune) int {
+	switch r {
+	case '<', '>':
+		return 4 // &lt; / &gt;
+	case '&':
+		return 5 // &amp;
+	}
+	return 1
+}
+
+// wrapLine splits line into pieces whose rendered width each fits budget,
+// breaking at the last space where possible and mid-word otherwise.
+func wrapLine(line string, budget int) []string {
+	if budget < 5 { // degenerate prefix wider than the budget; emit as-is
+		return []string{line}
+	}
+	var out []string
+	runes := []rune(line)
+	for len(runes) > 0 {
+		w, cut, lastSpace := 0, len(runes), -1
+		for i, r := range runes {
+			rw := runeWidth(r)
+			if w+rw > budget {
+				cut = i
+				break
+			}
+			w += rw
+			if r == ' ' {
+				lastSpace = i
+			}
+		}
+		if cut == len(runes) {
+			out = append(out, string(runes))
+			break
+		}
+		if lastSpace > 0 {
+			out = append(out, string(runes[:lastSpace]))
+			runes = runes[lastSpace+1:]
+		} else {
+			out = append(out, string(runes[:cut]))
+			runes = runes[cut:]
+		}
+	}
+	return out
+}
+
+// emitStreamRecord writes one record to w in the same format as stream.sh:
 //
 //	sender │ [ts kind] cwd=... branch=...
 //	sender │ <body line 1>
 //	sender │ <body line 2>
-func emitStreamRecord(r channel.Record) {
+//
+// Body lines are wrapped to lineBudget rendered chars, and the whole record is
+// capped at eventBudget: past it, emission stops at a line boundary and a
+// footer names the exact history command that recovers the full text.
+func emitStreamRecord(w io.Writer, r channel.Record, slug string) {
 	var header strings.Builder
 	header.WriteString(r.Sender)
 	header.WriteString(" │ [")
@@ -124,9 +198,30 @@ func emitStreamRecord(r channel.Record) {
 		header.WriteString(" branch=")
 		header.WriteString(r.Branch)
 	}
-	fmt.Println(header.String())
+	_, _ = fmt.Fprintln(w, header.String())
 
+	prefix := r.Sender + " │ "
+	prefixW := renderedWidth(prefix)
+
+	var lines []string
 	for _, bodyLine := range strings.Split(r.Body, "\n") {
-		fmt.Println(r.Sender + " │ " + bodyLine)
+		lines = append(lines, wrapLine(bodyLine, lineBudget-prefixW)...)
+	}
+
+	total := renderedWidth(header.String())
+	fits := total
+	for _, l := range lines {
+		fits += prefixW + renderedWidth(l)
+	}
+
+	for i, l := range lines {
+		lw := prefixW + renderedWidth(l)
+		if fits > eventBudget && total+lw > eventBudget-footerReserve {
+			_, _ = fmt.Fprintf(w, "%s…(agent-chat: truncated — %d more lines; full text: history.sh %s --since %s)\n",
+				prefix, len(lines)-i, slug, r.Ts)
+			return
+		}
+		_, _ = fmt.Fprintln(w, prefix+l)
+		total += lw
 	}
 }
