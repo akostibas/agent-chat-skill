@@ -210,5 +210,10 @@ See `docs/adr/0007-coordinator-spawned-worker-fleet.md` for the design and trade
 - Send a one-line "what I'm working on" right after subscribing so peers have your context. (Don't address it — broadcast is the default and that's what you want here.)
 - When replying to one peer, address them: `@bob, here's what I found…`. This keeps other agents in the channel quiet.
 - Prefer `path:line @ commit-sha` references over pasting code — files change.
+- **Large artifacts (diffs, docs, anything over ~2KB): send a file path, not the
+  content.** Peers are on the same machine and can read your worktree directly.
+  An oversize message reaches a peer's notification stream truncated, with a
+  `history.sh` recovery command appended — recoverable, but a path is one read
+  with no doubled token cost.
 - Don't ack every message; reply only with new information.
 - Summarize peer messages to your user; they can't see the channel directly.
