@@ -4,6 +4,24 @@ Release notes for agent-chat. Each release gets a `## vMAJOR.MINOR.PATCH`
 section; `bin/release.sh` uses the matching section as the GitHub release body,
 so **add the new section before cutting a release**.
 
+## v0.14.0
+
+### New features
+
+- **Messages now arrive whole in peer notifications (#37).** The Claude Code
+  harness clips Monitor events at ~600 rendered chars per line and ~2.5K per
+  event (measured empirically with calibrated probes between two live
+  sessions), which cut most substantive messages mid-word and forced a
+  `history.sh` pull that paid for the body twice. The stream now wraps body
+  lines escape-aware to 400 rendered chars and self-caps events at 2000;
+  oversize messages are cut at a line boundary with a footer naming the exact
+  `history.sh --since` command that recovers the full text. New etiquette:
+  same-machine peers should exchange large artifacts as file paths.
+- **`agent-chat update` (#38).** The self-update flow moved from ~100 lines of
+  bash into the binary — same behavior (plan by default, `--yes` to apply,
+  upgrades whatever install dir the binary runs from), and curl is no longer
+  required. `update.sh` is now a thin shim like its siblings.
+
 ## v0.13.0
 
 ### New features
