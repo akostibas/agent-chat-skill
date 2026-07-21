@@ -4,6 +4,22 @@ Release notes for agent-chat. Each release gets a `## vMAJOR.MINOR.PATCH`
 section; `bin/release.sh` uses the matching section as the GitHub release body,
 so **add the new section before cutting a release**.
 
+## v0.15.0
+
+### New features
+
+- **Agents stay online across host sleep.** When the machine slept, every
+  streaming agent froze at once, so on wake their heartbeats all looked
+  stale simultaneously — whichever agent's heartbeat fired first reaped all the
+  others as "timed out," and the falsely-reaped-but-still-running agents never
+  came back on their own (their routine heartbeat refused to recreate a deleted
+  presence file), so you had to manually convince each one to re-join. Presence
+  is now self-healing and wake-aware: a running stream reasserts its own presence
+  every beat — re-announcing a `[join]` if it had been reaped — and the first
+  beat after a detected clock jump skips reaping so live peers get a chance to
+  refresh before anyone is judged gone. A terminal that's still running Claude
+  Code stays online in the chat. See ADR-0009.
+
 ## v0.14.0
 
 ### New features
