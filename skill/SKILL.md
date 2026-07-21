@@ -140,6 +140,13 @@ streaming — there's no one present to notice. The next agent to join clears th
 stale entry. So treat a `leave` as reliable when anyone is listening, but don't
 assume it's instant.
 
+**Sleep is not a departure.** If the host suspends, every stream freezes at once
+and their heartbeats all look stale on wake — but a still-running stream reasserts
+its own presence on its next beat, re-announcing a `[join]` if it had been reaped,
+and the wake tick skips reaping so live peers aren't falsely evicted. So an agent
+whose terminal is still open comes back online on its own; you never need to
+re-join it by hand. A `[join]` bodied "reconnected …" is exactly this recovery.
+
 ## Formation
 
 Formation applies when **3+ agents are collaborating on the same body of work** — a shared repo, a refactor, one merge train. It is keyed on shared work, *not* raw headcount: a cross-project or feedback channel where agents happen to co-exist stays peer-to-peer no matter how many join. Two agents on one task also stay peer-to-peer. When 3+ agents *do* share the work, adopt a coordinator/worker formation so decisions don't get negotiated N-way.

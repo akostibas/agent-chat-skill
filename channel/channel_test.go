@@ -517,7 +517,7 @@ func TestRunHeartbeat(t *testing.T) {
 	// Tick fast so the loop refreshes within the test's patience.
 	t.Setenv("AGENT_CHAT_HEARTBEAT_SECS", "1")
 
-	// RunHeartbeat refreshes but never creates — register first (as Join would).
+	// Register first (as Join would) so the loop is refreshing, not self-healing.
 	if err := c.TouchPresence("worker"); err != nil {
 		t.Fatal(err)
 	}
@@ -525,7 +525,7 @@ func TestRunHeartbeat(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
-		c.RunHeartbeat(ctx, "worker")
+		c.RunHeartbeat(ctx, Record{Sender: "worker"})
 		close(done)
 	}()
 
@@ -613,8 +613,8 @@ func TestReapedPeerNotReReapedByHeartbeat(t *testing.T) {
 	}
 	c.ReapStale("live")
 
-	// The ghost's own stream reconnects and heartbeats. Because RefreshPresence
-	// (what RunHeartbeat drives) never re-creates, no file reappears...
+	// RefreshPresence is the "never resurrect" primitive (send.go drives it): a
+	// bare refresh of a reaped peer must not re-create the file...
 	if err := c.RefreshPresence("ghost"); err != nil {
 		t.Fatal(err)
 	}
@@ -636,6 +636,170 @@ func TestReapedPeerNotReReapedByHeartbeat(t *testing.T) {
 	}
 	if leaves != 1 {
 		t.Errorf("expected exactly 1 leave for a reaped peer, got %d", leaves)
+	}
+}
+
+// EnsurePresence refreshes an existing file and reports created == false, but
+// re-creates a reaped peer's file and reports created == true — the signal a
+// caller uses to re-announce a [join].
+func TestEnsurePresenceSelfHeals(t *testing.T) {
+	c := testChannel(t)
+	if err := c.ensureDir(); err != nil {
+		t.Fatal(err)
+	}
+
+	// First call on a fresh peer creates the file.
+	created, err := c.EnsurePresence("worker")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !created {
+		t.Error("EnsurePresence on a missing peer should report created == true")
+	}
+
+	// A second call refreshes (does not re-create) and bumps the mtime forward.
+	old := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(c.presFile("worker"), old, old); err != nil {
+		t.Fatal(err)
+	}
+	created, err = c.EnsurePresence("worker")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created {
+		t.Error("EnsurePresence on an existing peer should report created == false")
+	}
+	info, err := os.Stat(c.presFile("worker"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !info.ModTime().After(old.Add(time.Minute)) {
+		t.Error("EnsurePresence did not refresh the mtime of an existing peer")
+	}
+}
+
+// A live peer that was falsely reaped (its file removed) reasserts itself on the
+// next heartbeat: the file reappears AND a fresh [join] is posted, so peers see
+// the return instead of the agent silently vanishing (the sleep-drops-agents
+// bug). The [join] is what keeps this from becoming the issue #29 re-reap loop.
+func TestRunHeartbeatSelfHealsAfterFalseReap(t *testing.T) {
+	c := testChannel(t)
+	if err := c.ensureDir(); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AGENT_CHAT_HEARTBEAT_SECS", "1")
+
+	// The peer is registered, then reaped out from under it (as a wake-time mass
+	// reap would do) — its file is gone though the process is alive.
+	if err := c.TouchPresence("worker"); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.RemovePresence("worker"); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go c.RunHeartbeat(ctx, Record{Sender: "worker", Cwd: "/tmp/wt", Branch: "main"})
+
+	// Within a few ticks the heartbeat recreates the file AND posts a [join] — so
+	// wait on the log record, not the file (the file appears a hair earlier and
+	// would race the append). The rejoin carries the peer's identity so peers see
+	// where it reconnected from.
+	deadline := time.Now().Add(3 * time.Second)
+	joinRecord := func() *Record {
+		recs, err := c.Read()
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i := range recs {
+			if recs[i].Sender == "worker" && recs[i].Kind == "join" {
+				return &recs[i]
+			}
+		}
+		return nil
+	}
+	for joinRecord() == nil {
+		if time.Now().After(deadline) {
+			t.Fatal("RunHeartbeat did not self-heal a reaped-but-live peer (no rejoin [join])")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if _, err := os.Stat(c.presFile("worker")); err != nil {
+		t.Errorf("self-heal should have recreated the presence file: %v", err)
+	}
+	if r := joinRecord(); r.Cwd != "/tmp/wt" || r.Branch != "main" {
+		t.Errorf("rejoin should carry the peer's cwd/branch, got cwd=%q branch=%q", r.Cwd, r.Branch)
+	}
+	cancel()
+
+	// Later ticks re-touch the now-existing file (created == false) and must NOT
+	// each re-announce — exactly one [join] total.
+	recs, err := c.Read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var joins int
+	for _, r := range recs {
+		if r.Sender == "worker" && r.Kind == "join" {
+			joins++
+		}
+	}
+	if joins != 1 {
+		t.Errorf("expected exactly 1 rejoin [join] after a false reap, got %d", joins)
+	}
+}
+
+// After the host sleeps, every peer's mtime looks stale at once. A heartbeat
+// tick whose wall-clock gap dwarfs the interval is the wake signature: it must
+// reassert its own presence but SKIP reaping, so live peers that haven't
+// refreshed yet aren't falsely evicted. The very next normal-gap tick reaps as
+// usual. This is the test for the wake-aware skip that prevents the false mass
+// reap (the sleep-drops-agents bug).
+func TestHeartbeatTickSkipsReapAfterWake(t *testing.T) {
+	c := testChannel(t)
+	if err := c.ensureDir(); err != nil {
+		t.Fatal(err)
+	}
+	const staleSecs = 45
+
+	// A peer whose heartbeat is far past the stale window — exactly how every
+	// peer looks the instant the host resumes from sleep.
+	if err := c.TouchPresence("peer"); err != nil {
+		t.Fatal(err)
+	}
+	preSleep := time.Now().Add(-10 * time.Minute)
+	if err := os.Chtimes(c.presFile("peer"), preSleep, preSleep); err != nil {
+		t.Fatal(err)
+	}
+
+	// Wake tick: a huge gap. The peer must not be reaped despite its stale mtime.
+	c.heartbeatTick(Record{Sender: "me"}, 10*time.Minute, staleSecs)
+	if _, err := os.Stat(c.presFile("peer")); os.IsNotExist(err) {
+		t.Fatal("wake tick reaped a peer it should have spared")
+	}
+	recs, _ := c.Read()
+	for _, r := range recs {
+		if r.Sender == "peer" && r.Kind == "leave" {
+			t.Fatal("wake tick posted a leave for a peer it should have spared")
+		}
+	}
+
+	// A genuinely dead peer that never refreshes is still reaped on the next
+	// normal-gap tick.
+	c.heartbeatTick(Record{Sender: "me"}, 15*time.Second, staleSecs)
+	if _, err := os.Stat(c.presFile("peer")); !os.IsNotExist(err) {
+		t.Error("normal tick after wake did not reap a still-stale peer")
+	}
+	recs, _ = c.Read()
+	var leaves int
+	for _, r := range recs {
+		if r.Sender == "peer" && r.Kind == "leave" {
+			leaves++
+		}
+	}
+	if leaves != 1 {
+		t.Errorf("expected exactly 1 leave once the normal tick reaps, got %d", leaves)
 	}
 }
 

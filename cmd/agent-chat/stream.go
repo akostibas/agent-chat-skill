@@ -57,8 +57,14 @@ func cmdStream(args []string) {
 		os.Exit(0)
 	}()
 
-	// Heartbeat: refresh presence and reap stale peers until ctx is canceled.
-	go c.RunHeartbeat(ctx, name)
+	// Heartbeat: reassert presence and reap stale peers until ctx is canceled.
+	// Pass the full identity Record so a heartbeat that self-heals after a false
+	// reap (e.g. the host slept) re-announces this peer with its cwd/branch.
+	go c.RunHeartbeat(ctx, channel.Record{
+		Sender: name,
+		Cwd:    agentCwd(),
+		Branch: agentBranch(),
+	})
 
 	// Tail the log from the current end — the same poll loop an external peer
 	// would run — emitting peer messages to stdout.
