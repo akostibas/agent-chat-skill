@@ -50,8 +50,15 @@ func cmdSend(args []string) {
 	// heartbeat fresh so peers don't falsely reap it between stream beats (issue
 	// #29). Refresh-only: a send never resurrects an already-reaped member (it
 	// must re-join for that), matching the heartbeat's tombstone semantics.
+	//
+	// We deliberately do NOT reap other peers here. This is a fresh CLI process
+	// with no tick history, so it cannot tell a genuinely stale peer from one
+	// that merely looks stale because the host just woke from sleep — no
+	// gap-based wake guard can ever apply to a one-shot process. A send moments
+	// after a wake would mass-reap live peers and fire the flap storm issue #39
+	// is about. Reaping is the long-running stream's job (RunHeartbeat), which
+	// has the tick history to be wake-aware.
 	_ = c.RefreshPresence(as)
-	c.ReapStale(as)
 
 	fmt.Printf("sent (%d bytes) to %q as %q\n", len(raw), slug, as)
 }

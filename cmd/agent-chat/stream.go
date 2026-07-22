@@ -76,7 +76,20 @@ func cmdStream(args []string) {
 // tailAndEmit polls the channel from its current end via ReadSince and writes
 // filtered, formatted records to stdout. Blocks until ctx is canceled or a read
 // error occurs.
+//
+// Sleep-flap debounce (issue #39): a stdout line here is a peer wake event, so a
+// spurious departure costs a subscriber a turn. When the host sleeps and wakes,
+// a live peer is briefly reaped and re-announces itself — a timed-out [leave]
+// followed seconds later by a "reconnected" [join]. To keep that flap from ever
+// waking a subscriber, a timed-out leave is held for holdWindow() rather than
+// emitted at once; if the same peer rejoins within the window both records are
+// dropped silently. A leave that outlives the window is a genuine departure and
+// is emitted. Clean leaves and ordinary joins pass through immediately. This
+// covers a flap from ANY source (the stream heartbeat, a one-shot send, an
+// external Go peer), so it is the backstop even if a source-side reap slips
+// through.
 func tailAndEmit(ctx context.Context, c *channel.Channel, slug, me string) error {
+	deb := newFlapDebouncer(holdWindow())
 	cur, err := c.End()
 	if err != nil {
 		return err
@@ -98,16 +111,88 @@ func tailAndEmit(ctx context.Context, c *channel.Channel, slug, me string) error
 				continue
 			}
 			// Mention filter: a msg with non-empty mentions that doesn't name me
-			// is skipped. Non-msg kinds (join/leave) always pass through.
+			// is skipped. Non-msg kinds (join/leave) go through the debouncer.
 			if r.Kind == "msg" && len(r.Mentions) > 0 && !slices.Contains(r.Mentions, me) {
 				continue
 			}
-			emitStreamRecord(os.Stdout, r, slug)
+			for _, e := range deb.offer(r, time.Now()) {
+				emitStreamRecord(os.Stdout, e, slug)
+			}
+		}
+		// A held leave whose window elapsed with no reconnect is a real
+		// departure — emit it. time.Now() carries a monotonic reading, so if the
+		// host re-sleeps mid-hold the elapsed check (now.Sub(heldAt)) freezes
+		// exactly as the reaped peer's heartbeat does, keeping the
+		// reconnect-vs-expiry race fair across a second nap — the very clock
+		// quirk behind the bug, working for us.
+		for _, e := range deb.expired(time.Now()) {
+			emitStreamRecord(os.Stdout, e, slug)
 		}
 		if len(recs) == 0 {
 			time.Sleep(100 * time.Millisecond)
 		}
 	}
+}
+
+// holdWindow is how long a timed-out leave is withheld to see whether the peer
+// reconnects. It is derived, not a constant: the leave is racing exactly one
+// thing — the reaped peer's next heartbeat, which lands within one heartbeat
+// interval of a wake — so two intervals gives a full cycle plus equal slack and
+// tracks any AGENT_CHAT_HEARTBEAT_SECS override for free (issue #39).
+func holdWindow() time.Duration {
+	return 2 * time.Duration(channel.HeartbeatSecs()) * time.Second
+}
+
+// flapDebouncer decides, record by record, what a subscriber should actually be
+// woken for. It withholds a timed-out [leave] for a hold window; if the same
+// peer reconnects first the pair is a sleep flap and both are dropped, otherwise
+// the leave is a genuine departure and surfaces when the window expires. Time is
+// injected (callers pass now) so the policy is unit-testable without real clocks
+// or sleeps. Not safe for concurrent use — tailAndEmit drives it from one
+// goroutine.
+type flapDebouncer struct {
+	hold time.Duration
+	held map[string]pendingLeave
+}
+
+type pendingLeave struct {
+	rec    channel.Record
+	heldAt time.Time
+}
+
+func newFlapDebouncer(hold time.Duration) *flapDebouncer {
+	return &flapDebouncer{hold: hold, held: map[string]pendingLeave{}}
+}
+
+// offer feeds one record and returns what to emit now (nil to emit nothing). A
+// reconnect cancels a held leave (drops both); a timed-out leave is withheld; a
+// clean leave, an unmatched join, and every msg pass straight through.
+func (d *flapDebouncer) offer(r channel.Record, now time.Time) []channel.Record {
+	if r.Kind == "join" {
+		if _, ok := d.held[r.Sender]; ok {
+			delete(d.held, r.Sender)
+			return nil
+		}
+	}
+	if r.Kind == "leave" && r.Body == channel.LeaveBodyTimedOut {
+		d.held[r.Sender] = pendingLeave{rec: r, heldAt: now}
+		return nil
+	}
+	return []channel.Record{r}
+}
+
+// expired returns held leaves whose hold window has elapsed as of now, removing
+// them from the pending set. now.Sub(heldAt) is monotonic when both carry a
+// monotonic reading, which is what makes the hold freeze across a re-sleep.
+func (d *flapDebouncer) expired(now time.Time) []channel.Record {
+	var out []channel.Record
+	for name, h := range d.held {
+		if now.Sub(h.heldAt) >= d.hold {
+			out = append(out, h.rec)
+			delete(d.held, name)
+		}
+	}
+	return out
 }
 
 // Rendered-size budgets for the notification path. The Claude Code harness

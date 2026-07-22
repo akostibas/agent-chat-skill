@@ -43,6 +43,21 @@ import (
 const defaultStaleSecs = 45
 const defaultHeartbeatSecs = 15
 
+// LeaveBodyTimedOut is the body ReapStale posts when it retires a peer whose
+// heartbeat went stale. It is part of what peers observe on the wire, exported
+// so a stream consumer can tell a reap-induced leave (which a sleep flap
+// produces, and which should be debounced) apart from a clean, intentional
+// leave. Keep ReapStale and any matcher pinned to this single constant so they
+// never drift.
+const LeaveBodyTimedOut = "left channel (timed out)"
+
+// HeartbeatSecs returns the effective heartbeat interval in seconds, honoring
+// AGENT_CHAT_HEARTBEAT_SECS (default defaultHeartbeatSecs). It is the single
+// source of truth for the beat period, so a consumer sizing a window off the
+// heartbeat (e.g. a flap-debounce hold) tracks the same env override instead of
+// hardcoding a second constant.
+func HeartbeatSecs() int { return envInt("AGENT_CHAT_HEARTBEAT_SECS", defaultHeartbeatSecs) }
+
 // Record is a single JSONL entry in the channel log. Field names and omitempty
 // rules are the published schema — they must stay byte-identical to what the
 // CLI and the original shell scripts' jq schema write. See TestRecordJSONGolden.
