@@ -165,13 +165,21 @@ func (c *Channel) RunHeartbeat(ctx context.Context, r Record) {
 	_ = c.RefreshPresence(name)
 	ticker := time.NewTicker(time.Duration(heartbeatSecs) * time.Second)
 	defer ticker.Stop()
-	last := time.Now()
+	// last/now are stripped of their monotonic reading (Round(0)) so the gap
+	// heartbeatTick sees is measured on the WALL clock — the same basis as the
+	// mtime-age predicate it guards. This is load-bearing on macOS: Go's
+	// monotonic clock is mach_absolute_time, which pauses across system sleep, so
+	// a monotonic gap reads ~one beat even after a 20-minute nap and the wake-skip
+	// never fires; the wall gap correctly shows the sleep and trips the skip
+	// (issue #39). The ticker itself stays monotonic on purpose — it should fire
+	// on awake-time cadence, not replay a beat per slept second.
+	last := time.Now().Round(0)
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			now := time.Now()
+			now := time.Now().Round(0)
 			c.heartbeatTick(r, now.Sub(last), staleSecs)
 			last = now
 		}
@@ -359,7 +367,7 @@ func (c *Channel) ReapStale(me string) {
 				Ts:     isoNow(),
 				Sender: name,
 				Kind:   "leave",
-				Body:   "left channel (timed out)",
+				Body:   LeaveBodyTimedOut,
 			})
 		}()
 		cancel()

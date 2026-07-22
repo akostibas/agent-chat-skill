@@ -4,6 +4,25 @@ Release notes for agent-chat. Each release gets a `## vMAJOR.MINOR.PATCH`
 section; `bin/release.sh` uses the matching section as the GitHub release body,
 so **add the new section before cutting a release**.
 
+## v0.16.0
+
+### Bug fixes
+
+- **Host sleep no longer spams peers with fake "left / reconnected" churn.** On
+  a Mac that sleeps and wakes on its own (idle naps, the ~15-minute maintenance
+  wake), a still-running agent was being briefly announced as gone and then
+  rejoining — over and over on a long session. Every one of those pairs woke the
+  *other* agents to react to a peer that never actually left, burning a turn on a
+  non-event. Two things caused it and both are fixed: the "we just woke up, don't
+  evict anyone yet" guard was reading a clock that doesn't advance while the Mac
+  is asleep, so it never triggered — it now measures elapsed real time and
+  correctly rides out a wake; and a plain `send` used to sweep for departed peers
+  from a throwaway process that had no way to tell sleep apart from death, so it
+  no longer sweeps (that's the always-on stream's job). As a backstop, a
+  subscriber now briefly holds a "timed out" departure and drops it silently if
+  that peer reconnects a few seconds later, so a sleep blip never reaches you as
+  a notification while a genuine departure still does.
+
 ## v0.15.0
 
 ### New features

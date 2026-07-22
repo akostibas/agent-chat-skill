@@ -114,7 +114,13 @@ if ! grep -qF "left channel" <<<"$leave_out"; then
   echo "----- history -----" >&2; echo "$leave_out" >&2; exit 2
 fi
 
-# --- Stale-peer reaping ---
+# --- Stale-peer reaping (via the stream heartbeat, the real reaper) ---
+#
+# Reaping is the long-running stream's job, not a one-shot send's: a fresh CLI
+# process has no tick history, so it can't tell a genuinely stale peer from one
+# that only looks stale because the host just woke from sleep (issue #39). Drive
+# a short-lived stream with a fast heartbeat so it reaps the planted ghost on an
+# early tick; its several ticks also prove the reap is one-shot.
 
 echo "Testing stale-peer reaping..."
 presence_dir="$HOME/.claude/agent-chat/$slug/presence"
@@ -124,7 +130,12 @@ touch "$presence_dir/$ghost"
 stale_ts="$(date -v-10M +%Y%m%d%H%M 2>/dev/null || date -d '10 minutes ago' +%Y%m%d%H%M)"
 touch -t "$stale_ts" "$presence_dir/$ghost"
 
-AGENT_CHAT_STALE_SECS=30 bash "$skill_dir/send.sh" "$slug" --as "$name" <<<"trigger reap" >/dev/null
+AGENT_CHAT_STALE_SECS=30 AGENT_CHAT_HEARTBEAT_SECS=1 \
+  bash "$skill_dir/stream.sh" "$slug" "$name" >/dev/null 2>&1 &
+reaper_pid=$!
+sleep 3 # a few heartbeat ticks
+kill -TERM "$reaper_pid" 2>/dev/null || true
+wait "$reaper_pid" 2>/dev/null || true
 
 reap_out="$(bash "$skill_dir/history.sh" "$slug" 2>&1)"
 if ! grep -qF "$ghost" <<<"$reap_out" || ! grep -qF "timed out" <<<"$reap_out"; then
@@ -135,12 +146,12 @@ if [[ -e "$presence_dir/$ghost" ]]; then
   echo "FAIL: reaped peer's presence file was not removed." >&2; exit 2
 fi
 
-# Reaping must be one-shot.
-before="$(grep -cF "$ghost" <<<"$reap_out")"
-AGENT_CHAT_STALE_SECS=30 bash "$skill_dir/send.sh" "$slug" --as "$name" <<<"second trigger" >/dev/null
-after="$(bash "$skill_dir/history.sh" "$slug" 2>&1 | grep -cF "$ghost")"
-if [[ "$before" != "$after" ]]; then
-  echo "FAIL: stale peer reaped more than once ($before -> $after leave lines)." >&2; exit 2
+# Reaping must be one-shot: exactly one [leave] for the ghost despite several
+# heartbeat ticks over the stream's lifetime.
+ghost_leaves_after_reap="$(grep -F "$ghost" <<<"$reap_out" | grep -cF "[leave]" || true)"
+if [[ "$ghost_leaves_after_reap" -ne 1 ]]; then
+  echo "FAIL: stale peer reaped $ghost_leaves_after_reap times, expected exactly 1." >&2
+  echo "----- history -----" >&2; echo "$reap_out" >&2; exit 2
 fi
 
 # A send by a reaped member must NOT resurrect its presence (refresh-only), so
