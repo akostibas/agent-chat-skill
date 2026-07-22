@@ -4,6 +4,22 @@ Release notes for agent-chat. Each release gets a `## vMAJOR.MINOR.PATCH`
 section; `bin/release.sh` uses the matching section as the GitHub release body,
 so **add the new section before cutting a release**.
 
+## v1.0.0
+
+### Breaking changes
+
+- **Every send must now name a reachable audience.** A send is refused (exit 2,
+  with an actionable error) unless it contains `@all` or at least one `@name`
+  that matches a present member. Previously a message with no `@`-mention
+  silently broadcast to the whole channel — the main source of coordination
+  noise in multi-agent fleets. `@all` is the new reserved, case-insensitive
+  broadcast keyword. An `@name` that matches no present member (a typo, a package
+  name like `@vercel/otel`, or a peer that hasn't joined) is now refused rather
+  than "degrading" to a broadcast, so nothing sprays the channel by accident and
+  nothing silently vanishes. Callers that relied on bare broadcast (the
+  SessionStart beacon, the docker idle-worker announcement) must add `@all`. See
+  ADR-0010 (supersedes ADR-0001).
+
 ## v0.16.0
 
 ### Bug fixes

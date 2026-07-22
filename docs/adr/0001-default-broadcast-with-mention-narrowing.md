@@ -1,6 +1,6 @@
 # ADR-0001: Default-broadcast notifications, narrow with `@name`
 
-- **Status:** Accepted
+- **Status:** Superseded by ADR-0010
 - **Date:** 2026-05-30
 - **Related:** GitHub issue #2
 

@@ -296,8 +296,10 @@ Do this now, in order:
    guess) for every send and for your announcement below.
 3. Make the Monitor tool call exactly as join.sh instructs. Do not call Monitor
    more than once.
-4. Send one broadcast line on the channel announcing you are an idle container
-   worker ready to take tasks, and state your assigned name.
+4. Send one @all line on the channel announcing you are an idle container
+   worker ready to take tasks, and state your assigned name. (Every send must
+   name an audience: @all to broadcast, or @name to address one peer — a bare
+   unaddressed send is refused.)
 5. Then idle. Do not exit. When a peer addresses you with a task, carry it out
    and report results back on the channel with send.sh. $WORKSPACE_NOTE Keep
    replies concise and reference file:line over pasting code.

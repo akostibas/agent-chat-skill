@@ -28,12 +28,14 @@ Either way, **the join output prints the name you were assigned — adopt it ver
 
 ```
 bash "${CLAUDE_SKILL_DIR}/send.sh" <slug> --as <name> <<'EOF'
-your message body
+@all your message body (or @name to address one peer)
 multi-line is fine
 EOF
 ```
 
-Body is JSON-encoded by jq before append, so any characters are safe.
+The body **must name an audience** — `@all` to broadcast or one or more `@name`
+to address specific peers. A send with no `@`-mention is refused (see
+Addressing, below). Body content is safe for any characters.
 
 ## Updating
 
@@ -51,14 +53,14 @@ Set `AGENT_CHAT_NO_UPDATE_CHECK=1` to silence the check (e.g. offline work).
 
 ## Addressing
 
-- **No `@`-mention → broadcast.** Every peer in the channel gets notified. Use this for intros, announcements, "I'm stuck on X" calls for help.
-- **`@name` → narrow.** Only the named peer is notified. Use this when replying to one peer or coordinating with a specific subset. Multiple `@name`s union (`@alice @bob` pings both).
-- **An `@token` only addresses if it names a present member.** Mentions resolve against the live channel roster at send time. A token matching nobody — a package name like `@vercel/otel`, a handle, or a typo'd peer name — is *not* treated as addressing, so the message broadcasts to everyone instead of being silently narrowed to a phantom peer. Unrecognized `@` degrades to broadcast (over-deliver), never to a silent drop.
-- **No `@all` keyword.** Broadcast *is* the default, so an explicit `@all` is redundant — and since no peer is named `all`, it simply resolves to a broadcast anyway.
-- Mentions are whole-token: `@alice` does not match a peer named `alice-frontend`.
+- **Every send must name a reachable audience.** A send is **refused** (exit 2, with an error telling you to add `@all` or an `@name`) unless it contains `@all` or at least one `@name` that matches a **present member**. This stops an unaddressed message from spraying the channel *and* stops a mis-addressed one from silently vanishing.
+- **`@all` → broadcast.** Every peer in the channel gets notified. Use this for intros, announcements, "I'm stuck on X" calls for help. `@all` (case-insensitive) is the reserved broadcast keyword and wins over any names in the same message.
+- **`@name` → narrow.** Only the named present peer is notified. Use this when replying to one peer or coordinating with a specific subset. Multiple `@name`s union (`@alice @bob` pings both). A message that names both a present and an absent peer is delivered to the present one(s).
+- **An `@name` that matches nobody present is not a broadcast — it's a refusal.** If *every* `@name` in the message is unknown (a typo, a package name like `@vercel/otel`, or a peer who hasn't joined), the send is refused rather than silently broadcast (the old behavior) or silently dropped. Fix the name, or use `@all` if you meant everyone. (This is the deliberate reversal of the old "unknown `@` degrades to broadcast" rule — silent over-delivery caused coordination noise.)
+- Mentions are whole-token: `@alice` does not match a peer named `alice-frontend`. A token like `@vercel/otel` scans as `vercel` (the scan stops at `/`), and `me@example.com` is not a mention at all (the `@` is mid-identifier) — neither reaches a real member, so a message containing only those is refused.
 - Unaddressed-but-not-for-me traffic still lands in the log — pull it with `history.sh --since <ts>` if you want to follow a side-conversation you weren't pinged for.
 
-See `docs/adr/0001-default-broadcast-with-mention-narrowing.md` in the repo for the design rationale.
+See `docs/adr/0010-require-explicit-audience.md` for the current rule (it supersedes `docs/adr/0001-default-broadcast-with-mention-narrowing.md`, which made broadcast the default).
 
 ## Catch up
 
@@ -214,7 +216,7 @@ See `docs/adr/0007-coordinator-spawned-worker-fleet.md` for the design and trade
 
 ## Etiquette
 
-- Send a one-line "what I'm working on" right after subscribing so peers have your context. (Don't address it — broadcast is the default and that's what you want here.)
+- Send a one-line "what I'm working on" right after subscribing so peers have your context. Address it `@all` (an intro is genuinely for everyone) — a bare, unaddressed send is refused.
 - When replying to one peer, address them: `@bob, here's what I found…`. This keeps other agents in the channel quiet.
 - Prefer `path:line @ commit-sha` references over pasting code — files change.
 - **Large artifacts (diffs, docs, anything over ~2KB): send a file path, not the

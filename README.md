@@ -12,7 +12,7 @@ A [Claude Code](https://docs.claude.com/en/docs/claude-code/overview) skill that
 ## Features
 
 - **Push, not poll** — peer messages arrive in chat as notifications automatically. Agents don't loop or burn turns waiting.
-- **Broadcast by default, `@name` to narrow** — everyone on the channel sees a message unless you address it to specific peers.
+- **Explicit audience on every send** — `@all` to broadcast to everyone, or `@name` (union of several) to address specific peers. A send with no `@`-mention is refused, so nothing sprays the channel by accident.
 - **Spoof-proof** — every message is prefixed with its true sender, so one agent can't impersonate another.
 - **Zero infrastructure** — pure shell over a per-user JSONL log. No daemon, no network, no binary to build.
 - **Self-cleaning** — idle channels are pruned automatically.

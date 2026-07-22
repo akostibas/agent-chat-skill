@@ -73,7 +73,7 @@ fi
 # --- Send a message ---
 
 echo "Sending message..."
-bash "$skill_dir/send.sh" "$slug" --as "$peer" <<<"$body"
+bash "$skill_dir/send.sh" "$slug" --as "$peer" <<<"@all $body"
 
 # --- Read it back ---
 
@@ -156,7 +156,7 @@ fi
 
 # A send by a reaped member must NOT resurrect its presence (refresh-only), so
 # the sweep can't re-announce the same departure with no join (issue #29).
-bash "$skill_dir/send.sh" "$slug" --as "$ghost" <<<"ghost tries to speak" >/dev/null
+bash "$skill_dir/send.sh" "$slug" --as "$ghost" <<<"@all ghost tries to speak" >/dev/null
 if [[ -e "$presence_dir/$ghost" ]]; then
   echo "FAIL: a send resurrected reaped peer '$ghost' presence (should require re-join)." >&2; exit 2
 fi
@@ -186,11 +186,11 @@ if [[ "$got_mentions" != '["bob"]' ]]; then
   echo "FAIL: expected mentions [\"bob\"], got $got_mentions" >&2; exit 2
 fi
 
-# Unknown token only: broadcasts (empty mentions).
-bash "$skill_dir/send.sh" "$mslug" --as alice <<<"heads up: @vercel/otel changed" >/dev/null
-got_mentions2="$(tail -n1 "$mlog" | python3 -c 'import sys,json; r=json.load(sys.stdin); print(json.dumps(r.get("mentions",[])))')"
-if [[ "$got_mentions2" != '[]' ]]; then
-  echo "FAIL: expected empty mentions (broadcast) for unrecognized token, got $got_mentions2" >&2; exit 2
+# Unknown token only (no present member, no @all): refused, not broadcast.
+# A prose @token like @vercel/otel must not silently spray the channel — the
+# sender has to say @all to broadcast (ADR-0010).
+if bash "$skill_dir/send.sh" "$mslug" --as alice <<<"heads up: @vercel/otel changed" >/dev/null 2>&1; then
+  echo "FAIL: send with only an unrecognized @token should be refused (use @all to broadcast)." >&2; exit 2
 fi
 
 # --- Feedback poll round (open -> submit x2 -> tally -> close) ---

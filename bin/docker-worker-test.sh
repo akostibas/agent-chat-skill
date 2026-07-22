@@ -66,8 +66,8 @@ fi
 
 say "send a task to the worker from host peer '$PEER'"
 AGENT_CHAT_ROOT="$SCRATCH" "$HOST_BIN" send "$SLUG" --as "$PEER" <<EOF
-@$WORKER respond on this channel with exactly the token ROUNDTRIP-OK so I can
-confirm the round-trip works. Just send that token, nothing else.
+@$WORKER respond on this channel, addressed to me, with exactly the token
+ROUNDTRIP-OK so I can confirm the round-trip works. Send exactly: @$PEER ROUNDTRIP-OK
 EOF
 SENT_TS="$(date -u +%Y-%m-%dT%H:%M:%S)"
 echo "sent at $SENT_TS"
