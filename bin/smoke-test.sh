@@ -130,6 +130,13 @@ touch "$presence_dir/$ghost"
 stale_ts="$(date -v-10M +%Y%m%d%H%M 2>/dev/null || date -d '10 minutes ago' +%Y%m%d%H%M)"
 touch -t "$stale_ts" "$presence_dir/$ghost"
 
+# Directed message to the ghost that it will never read (it isn't streaming, so
+# it has no read frontier). When the ghost is reaped below, this must bounce back
+# to the sender ($name, who IS present as the reaping stream) — a departed peer's
+# unread directed message fails loudly instead of vanishing (ADR-0011).
+bounce_body="did you get this ghost? $$"
+bash "$skill_dir/send.sh" "$slug" --as "$name" <<<"@$ghost $bounce_body" >/dev/null
+
 AGENT_CHAT_STALE_SECS=30 AGENT_CHAT_HEARTBEAT_SECS=1 \
   bash "$skill_dir/stream.sh" "$slug" "$name" >/dev/null 2>&1 &
 reaper_pid=$!
@@ -151,6 +158,23 @@ fi
 ghost_leaves_after_reap="$(grep -F "$ghost" <<<"$reap_out" | grep -cF "[leave]" || true)"
 if [[ "$ghost_leaves_after_reap" -ne 1 ]]; then
   echo "FAIL: stale peer reaped $ghost_leaves_after_reap times, expected exactly 1." >&2
+  echo "----- history -----" >&2; echo "$reap_out" >&2; exit 2
+fi
+
+# The ghost's unread directed message must have bounced: a [bounce] record that
+# echoes the original body. Broadcasts don't bounce; a directed hand-off does.
+if ! grep -qF "[bounce]" <<<"$reap_out"; then
+  echo "FAIL: no [bounce] for the ghost's unread directed message." >&2
+  echo "----- history -----" >&2; echo "$reap_out" >&2; exit 2
+fi
+if ! grep -qF "$bounce_body" <<<"$reap_out"; then
+  echo "FAIL: the bounce did not echo the undelivered message body." >&2
+  echo "----- history -----" >&2; echo "$reap_out" >&2; exit 2
+fi
+# Exactly one bounce (per undelivered directed message) — no cascade/storm.
+bounce_count="$(grep -cF "[bounce]" <<<"$reap_out" || true)"
+if [[ "$bounce_count" -ne 1 ]]; then
+  echo "FAIL: expected exactly 1 bounce, got $bounce_count." >&2
   echo "----- history -----" >&2; echo "$reap_out" >&2; exit 2
 fi
 
@@ -269,4 +293,4 @@ if bash "$skill_dir/feedback.sh" tally "$zslug" >/dev/null 2>&1; then
   echo "FAIL: rate=0 join opened a round." >&2; exit 2
 fi
 
-echo "PASS: build + relocated/spaced install + join/send/history round-trip + leave-on-teardown + stale-peer reaping + mention resolution + feedback poll round + join trigger."
+echo "PASS: build + relocated/spaced install + join/send/history round-trip + leave-on-teardown + stale-peer reaping + undeliverable bounce + mention resolution + feedback poll round + join trigger."

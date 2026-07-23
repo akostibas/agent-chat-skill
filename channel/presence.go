@@ -369,6 +369,13 @@ func (c *Channel) ReapStale(me string) {
 				Kind:   "leave",
 				Body:   LeaveBodyTimedOut,
 			})
+			// The peer left with directed messages possibly unread — tell their
+			// senders, in the same locked section so departure and bounce arrive
+			// together. Only reached on a reap the caller already deemed genuine
+			// (heartbeatTick skips this on a wake tick), so a sleep flap does not
+			// bounce (ADR-0011).
+			c.bounceUndelivered(ctx, name)
+			_ = c.ClearReadOffset(name)
 		}()
 		cancel()
 	}

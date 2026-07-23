@@ -44,6 +44,7 @@ func cmdStream(args []string) {
 	defer func() {
 		emitLeave()
 		_ = c.RemovePresence(name)
+		_ = c.ClearReadOffset(name)
 	}()
 
 	// Intercept SIGINT/SIGTERM/SIGHUP so we announce departure before exit.
@@ -53,6 +54,7 @@ func cmdStream(args []string) {
 		<-sigs
 		emitLeave()
 		_ = c.RemovePresence(name)
+		_ = c.ClearReadOffset(name)
 		cancel()
 		os.Exit(0)
 	}()
@@ -94,6 +96,11 @@ func tailAndEmit(ctx context.Context, c *channel.Channel, slug, me string) error
 	if err != nil {
 		return err
 	}
+	// Persist the read frontier so that if this stream dies, the reaper can tell
+	// which directed messages went unread and bounce them to their senders
+	// (ADR-0011). Seed it at the start point, then advance it as records are
+	// delivered below.
+	_ = c.SaveReadOffset(me, cur.Offset())
 	for {
 		select {
 		case <-ctx.Done():
@@ -110,14 +117,22 @@ func tailAndEmit(ctx context.Context, c *channel.Channel, slug, me string) error
 			if r.Sender == me {
 				continue
 			}
-			// Mention filter: a msg with non-empty mentions that doesn't name me
-			// is skipped. Non-msg kinds (join/leave) go through the debouncer.
-			if r.Kind == "msg" && len(r.Mentions) > 0 && !slices.Contains(r.Mentions, me) {
+			// Mention filter: a directed record (msg or bounce) whose mentions
+			// don't name me is skipped — a bounce is addressed to one sender, so
+			// it must narrow like a msg or it would reach every peer. Non-msg
+			// kinds (join/leave) go through the debouncer.
+			if (r.Kind == "msg" || r.Kind == channel.KindBounce) && len(r.Mentions) > 0 && !slices.Contains(r.Mentions, me) {
 				continue
 			}
 			for _, e := range deb.offer(r, time.Now()) {
 				emitStreamRecord(os.Stdout, e, slug)
 			}
+		}
+		// Advance the persisted read frontier past everything just consumed: the
+		// stream has now surfaced every record addressed to me in this batch, so
+		// if it dies here those messages should not bounce (ADR-0011).
+		if len(recs) > 0 {
+			_ = c.SaveReadOffset(me, cur.Offset())
 		}
 		// A held leave whose window elapsed with no reconnect is a real
 		// departure — emit it. time.Now() carries a monotonic reading, so if the

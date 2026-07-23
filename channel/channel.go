@@ -137,6 +137,10 @@ func (c *Channel) presDir() string  { return filepath.Join(c.root, c.slug, "pres
 func (c *Channel) presFile(name string) string {
 	return filepath.Join(c.root, c.slug, "presence", name)
 }
+func (c *Channel) cursorsDir() string { return filepath.Join(c.root, c.slug, "cursors") }
+func (c *Channel) cursorFile(name string) string {
+	return filepath.Join(c.root, c.slug, "cursors", name)
+}
 
 func (c *Channel) ensureDir() error {
 	if err := os.MkdirAll(c.dir(), 0755); err != nil {
