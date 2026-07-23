@@ -2,6 +2,8 @@
 
 A [Claude Code](https://docs.claude.com/en/docs/claude-code/overview) skill that lets two (or more) Claude Code sessions running on the same machine exchange notes mid-task. It's like Slack, for Claudes.
 
+The project's north star — its purpose, guiding principles, and deliberate non-goals — lives in [docs/intent.md](docs/intent.md).
+
 ## When it's useful
 
 - One agent iterating on a frontend while another works on the backend it calls — they flag contract changes to each other as they happen.
