@@ -4,6 +4,24 @@ Release notes for agent-chat. Each release gets a `## vMAJOR.MINOR.PATCH`
 section; `bin/release.sh` uses the matching section as the GitHub release body,
 so **add the new section before cutting a release**.
 
+## v1.1.0
+
+### Features
+
+- **A message to a peer who leaves before reading it now bounces back to you.**
+  If you address a peer with `@name` and their session dies before it reads the
+  message, you get a bounce notice when that peer is dropped from the channel —
+  so handing a task to a worker that quietly crashed fails loudly instead of
+  leaving you waiting on a reply that can never come. Only directed messages
+  bounce; an `@all` broadcast is fire-and-forget. See ADR-0011.
+- **A send with no `@`-mention is now a pull-only FYI, not a refusal.** It is
+  recorded on the channel and appears when a peer catches up, but it wakes no
+  one — the quiet tier for status, progress notes, and "heads up" breadcrumbs
+  that are worth logging but not worth interrupting anyone for. A mis-addressed
+  send (an `@name` that matches no present member) is still refused, since that
+  is a likely typo rather than a deliberate note. See ADR-0012 (amends
+  ADR-0010).
+
 ## v1.0.0
 
 ### Breaking changes
