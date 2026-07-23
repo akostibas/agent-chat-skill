@@ -117,6 +117,11 @@ func tailAndEmit(ctx context.Context, c *channel.Channel, slug, me string) error
 			if r.Sender == me {
 				continue
 			}
+			// FYI is the quiet tier: it lives in the log for history/catch-up but
+			// is never a wake event, so the live stream skips it entirely (ADR-0012).
+			if r.Kind == channel.KindFYI {
+				continue
+			}
 			// Mention filter: a directed record (msg or bounce) whose mentions
 			// don't name me is skipped — a bounce is addressed to one sender, so
 			// it must narrow like a msg or it would reach every peer. Non-msg

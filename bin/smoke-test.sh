@@ -211,11 +211,54 @@ if [[ "$got_mentions" != '["bob"]' ]]; then
 fi
 
 # Unknown token only (no present member, no @all): refused, not broadcast.
-# A prose @token like @vercel/otel must not silently spray the channel — the
-# sender has to say @all to broadcast (ADR-0010).
+# A prose @token like @vercel/otel must not silently spray the channel — an
+# @-token that matches nobody is treated as a mistake (ADR-0010).
 if bash "$skill_dir/send.sh" "$mslug" --as alice <<<"heads up: @vercel/otel changed" >/dev/null 2>&1; then
   echo "FAIL: send with only an unrecognized @token should be refused (use @all to broadcast)." >&2; exit 2
 fi
+
+# No @-mention at all: accepted as a pull-only FYI (ADR-0012), NOT refused. It
+# stores as kind=fyi and is visible on pull (history), the deliberate-quiet tier.
+echo "Testing pull-only FYI tier..."
+fyi_note="just a breadcrumb, nobody needs waking $$"
+if ! bash "$skill_dir/send.sh" "$mslug" --as alice <<<"$fyi_note" >/dev/null 2>&1; then
+  echo "FAIL: an unaddressed send should be accepted as an FYI, not refused." >&2; exit 2
+fi
+got_kind="$(tail -n1 "$mlog" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("kind",""))')"
+if [[ "$got_kind" != "fyi" ]]; then
+  echo "FAIL: unaddressed send stored as kind='$got_kind', want 'fyi'." >&2; exit 2
+fi
+if ! bash "$skill_dir/history.sh" "$mslug" 2>&1 | grep -qF "$fyi_note"; then
+  echo "FAIL: FYI note not visible in history (it should be pullable)." >&2; exit 2
+fi
+
+# The stream must NOT emit an FYI, but MUST emit a directed message. A stdout
+# line here is exactly what Monitor turns into a peer wake event, so this is the
+# deterministic proxy for "an FYI wakes no one" — the closest a shell can get to
+# the wake boundary without driving Monitor itself.
+echo "Testing FYI is not a wake event (stream emits directed, skips FYI)..."
+bash "$skill_dir/join.sh" "$mslug" --as watcher >/dev/null
+watch_out="$(mktemp)"
+bash "$skill_dir/stream.sh" "$mslug" watcher >"$watch_out" 2>/dev/null &
+watch_pid=$!
+sleep 1 # let the stream come up and seed its cursor at the current log end
+fyi_stream="FYISENTINEL-stay-quiet-$$"
+directed_stream="DIRECTEDSENTINEL-wake-watcher-$$"
+bash "$skill_dir/send.sh" "$mslug" --as alice <<<"$fyi_stream" >/dev/null              # no @ → FYI
+bash "$skill_dir/send.sh" "$mslug" --as alice <<<"@watcher $directed_stream" >/dev/null # directed
+sleep 1 # let the stream poll and emit
+kill -TERM "$watch_pid" 2>/dev/null || true
+wait "$watch_pid" 2>/dev/null || true
+
+if ! grep -qF "$directed_stream" "$watch_out"; then
+  echo "FAIL: stream did not emit a directed @watcher message (it should wake)." >&2
+  echo "----- stream stdout -----" >&2; cat "$watch_out" >&2; rm -f "$watch_out"; exit 2
+fi
+if grep -qF "$fyi_stream" "$watch_out"; then
+  echo "FAIL: stream emitted an FYI (it must be pull-only, never a wake event)." >&2
+  echo "----- stream stdout -----" >&2; cat "$watch_out" >&2; rm -f "$watch_out"; exit 2
+fi
+rm -f "$watch_out"
 
 # --- Feedback poll round (open -> submit x2 -> tally -> close) ---
 
@@ -293,4 +336,4 @@ if bash "$skill_dir/feedback.sh" tally "$zslug" >/dev/null 2>&1; then
   echo "FAIL: rate=0 join opened a round." >&2; exit 2
 fi
 
-echo "PASS: build + relocated/spaced install + join/send/history round-trip + leave-on-teardown + stale-peer reaping + undeliverable bounce + mention resolution + feedback poll round + join trigger."
+echo "PASS: build + relocated/spaced install + join/send/history round-trip + leave-on-teardown + stale-peer reaping + undeliverable bounce + mention resolution + pull-only FYI + feedback poll round + join trigger."
