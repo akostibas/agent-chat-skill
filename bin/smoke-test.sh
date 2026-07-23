@@ -232,6 +232,34 @@ if ! bash "$skill_dir/history.sh" "$mslug" 2>&1 | grep -qF "$fyi_note"; then
   echo "FAIL: FYI note not visible in history (it should be pullable)." >&2; exit 2
 fi
 
+# The stream must NOT emit an FYI, but MUST emit a directed message. A stdout
+# line here is exactly what Monitor turns into a peer wake event, so this is the
+# deterministic proxy for "an FYI wakes no one" — the closest a shell can get to
+# the wake boundary without driving Monitor itself.
+echo "Testing FYI is not a wake event (stream emits directed, skips FYI)..."
+bash "$skill_dir/join.sh" "$mslug" --as watcher >/dev/null
+watch_out="$(mktemp)"
+bash "$skill_dir/stream.sh" "$mslug" watcher >"$watch_out" 2>/dev/null &
+watch_pid=$!
+sleep 1 # let the stream come up and seed its cursor at the current log end
+fyi_stream="FYISENTINEL-stay-quiet-$$"
+directed_stream="DIRECTEDSENTINEL-wake-watcher-$$"
+bash "$skill_dir/send.sh" "$mslug" --as alice <<<"$fyi_stream" >/dev/null              # no @ → FYI
+bash "$skill_dir/send.sh" "$mslug" --as alice <<<"@watcher $directed_stream" >/dev/null # directed
+sleep 1 # let the stream poll and emit
+kill -TERM "$watch_pid" 2>/dev/null || true
+wait "$watch_pid" 2>/dev/null || true
+
+if ! grep -qF "$directed_stream" "$watch_out"; then
+  echo "FAIL: stream did not emit a directed @watcher message (it should wake)." >&2
+  echo "----- stream stdout -----" >&2; cat "$watch_out" >&2; rm -f "$watch_out"; exit 2
+fi
+if grep -qF "$fyi_stream" "$watch_out"; then
+  echo "FAIL: stream emitted an FYI (it must be pull-only, never a wake event)." >&2
+  echo "----- stream stdout -----" >&2; cat "$watch_out" >&2; rm -f "$watch_out"; exit 2
+fi
+rm -f "$watch_out"
+
 # --- Feedback poll round (open -> submit x2 -> tally -> close) ---
 
 echo "Testing feedback poll round..."
