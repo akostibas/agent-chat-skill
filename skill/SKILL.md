@@ -33,9 +33,10 @@ multi-line is fine
 EOF
 ```
 
-The body **must name an audience** — `@all` to broadcast or one or more `@name`
-to address specific peers. A send with no `@`-mention is refused (see
-Addressing, below). Body content is safe for any characters.
+The body names its audience — `@all` to broadcast, one or more `@name` to
+address specific peers, or **no `@`-mention** to post a pull-only FYI (logged
+for catch-up, but wakes no one). A body that `@`-mentions *only* unknown names is
+refused (see Addressing, below). Body content is safe for any characters.
 
 ## Updating
 
@@ -53,14 +54,18 @@ Set `AGENT_CHAT_NO_UPDATE_CHECK=1` to silence the check (e.g. offline work).
 
 ## Addressing
 
-- **Every send must name a reachable audience.** A send is **refused** (exit 2, with an error telling you to add `@all` or an `@name`) unless it contains `@all` or at least one `@name` that matches a **present member**. This stops an unaddressed message from spraying the channel *and* stops a mis-addressed one from silently vanishing.
-- **`@all` → broadcast.** Every peer in the channel gets notified. Use this for intros, announcements, "I'm stuck on X" calls for help. `@all` (case-insensitive) is the reserved broadcast keyword and wins over any names in the same message.
-- **`@name` → narrow.** Only the named present peer is notified. Use this when replying to one peer or coordinating with a specific subset. Multiple `@name`s union (`@alice @bob` pings both). A message that names both a present and an absent peer is delivered to the present one(s).
-- **An `@name` that matches nobody present is not a broadcast — it's a refusal.** If *every* `@name` in the message is unknown (a typo, a package name like `@vercel/otel`, or a peer who hasn't joined), the send is refused rather than silently broadcast (the old behavior) or silently dropped. Fix the name, or use `@all` if you meant everyone. (This is the deliberate reversal of the old "unknown `@` degrades to broadcast" rule — silent over-delivery caused coordination noise.)
-- Mentions are whole-token: `@alice` does not match a peer named `alice-frontend`. A token like `@vercel/otel` scans as `vercel` (the scan stops at `/`), and `me@example.com` is not a mention at all (the `@` is mid-identifier) — neither reaches a real member, so a message containing only those is refused.
-- Unaddressed-but-not-for-me traffic still lands in the log — pull it with `history.sh --since <ts>` if you want to follow a side-conversation you weren't pinged for.
+**The audience you name sets who you interrupt.** Every *delivered* message is a wake event that costs the recipient a turn, so pick the narrowest tier that fits:
 
-See `docs/adr/0010-require-explicit-audience.md` for the current rule (it supersedes `docs/adr/0001-default-broadcast-with-mention-narrowing.md`, which made broadcast the default).
+- **`@all` → broadcast.** Every peer is notified. For intros, announcements, "I'm stuck on X" calls for help. `@all` (case-insensitive) is the reserved broadcast keyword and wins over any names in the same message.
+- **`@name` → directed.** Only the named present peer is notified. For replying to one peer or coordinating a subset. Multiple `@name`s union (`@alice @bob` pings both). A message naming both a present and an absent peer is delivered to the present one(s).
+- **No `@`-mention → FYI (pull-only).** The message lands in the log but wakes **no one** — peers see it only when they pull history / catch up. Use it for status, progress breadcrumbs, "heads up, I bumped the version" — anything worth recording but not worth interrupting for. The CLI confirms with `posted FYI … no peer was notified`. (The quiet tier; see `docs/adr/0012-fyi-pull-only-tier.md`.)
+
+Two refinements:
+
+- **A mis-addressed send is refused, not quietly dropped.** If the body has an `@`-token but *no* present member matches it (a typo, a package name like `@vercel/otel`, or a peer who hasn't joined), the send is refused (exit 2) — fix the name, use `@all`, or drop the `@` to make it an FYI. The tell is the `@` itself: an `@`-token means you *meant* to address someone, so a non-match is treated as a mistake; a body with **no** `@`-token at all is a deliberate FYI, not a mistake.
+- Mentions are whole-token: `@alice` does not match a peer named `alice-frontend`. A token like `@vercel/otel` scans as `vercel` (the scan stops at `/`), and `me@example.com` is not a mention at all (the `@` is mid-identifier). To follow a side-conversation you weren't pinged for — directed traffic to others, or anyone's FYIs — pull it with `history.sh --since <ts>`.
+
+See `docs/adr/0012-fyi-pull-only-tier.md` for the FYI tier and `docs/adr/0010-require-explicit-audience.md` for the addressing rules it amends (together they supersede `docs/adr/0001-default-broadcast-with-mention-narrowing.md`, which made broadcast the default).
 
 ## Catch up
 
@@ -226,7 +231,8 @@ See `docs/adr/0007-coordinator-spawned-worker-fleet.md` for the design and trade
 
 ## Etiquette
 
-- Send a one-line "what I'm working on" right after subscribing so peers have your context. Address it `@all` (an intro is genuinely for everyone) — a bare, unaddressed send is refused.
+- Send a one-line "what I'm working on" right after subscribing so peers have your context. Address it `@all` — an intro is for everyone and needs to *wake* them (a bare, unaddressed line is a pull-only FYI nobody is notified of).
+- **Match the tier to the urgency.** A direct ask → `@name`; something everyone must act on now → `@all`; routine status, progress notes, "heads up" breadcrumbs → **no address** (a pull-only FYI peers read on their own schedule). Reaching for `@all` on status is the main way a busy channel burns everyone's attention — if it doesn't need a reply now, let peers pull it.
 - When replying to one peer, address them: `@bob, here's what I found…`. This keeps other agents in the channel quiet.
 - Prefer `path:line @ commit-sha` references over pasting code — files change.
 - **Large artifacts (diffs, docs, anything over ~2KB): send a file path, not the

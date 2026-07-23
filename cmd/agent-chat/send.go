@@ -15,34 +15,54 @@ import (
 // It is matched case-insensitively and is never a valid member name.
 const broadcastToken = "all"
 
-// resolveAudience derives a send's recipients from its body, given the live
-// roster. Every send must name a REACHABLE audience explicitly:
+// audience is the delivery tier a send resolves to — which peers, if any, the
+// message should wake. It is derived purely from the body's addressing, so the
+// tier and the interruption it costs are the sender's explicit choice.
+type audience int
+
+const (
+	// audienceRefuse: the body @-mentioned someone, but no present member matched
+	// — a typo, a package name like @vercel/otel, or an absent peer. Refused, so a
+	// mis-addressed message fails loudly instead of reaching nobody.
+	audienceRefuse audience = iota
+	// audienceBroadcast: @all — wake every peer.
+	audienceBroadcast
+	// audienceDirected: one or more @<name> matching present members — wake those.
+	audienceDirected
+	// audienceFYI: no @-mention at all — post to the log but wake no one. A
+	// deliberate quiet note, seen only when a peer pulls history (ADR-0012).
+	audienceFYI
+)
+
+// resolveAudience derives a send's delivery tier from its body, given the live
+// roster. The distinction that separates "quiet" from "mistake" is whether the
+// body carries any addressing intent at all:
 //
-//   - @all (case-insensitive) → broadcast: returns (nil, true); an empty
-//     Mentions slice is what the stream treats as "deliver to everyone".
-//   - one or more @<name> matching a present member → addressed: returns those
-//     members (the stream delivers only to members it names).
-//   - anything else (no @-mention, or @names that match no present member —
-//     prose like @vercel/otel, a typo, or an absent peer) → returns
-//     (nil, false): the caller must refuse. This is deliberate: it stops an
-//     unaddressed message from spraying the channel AND stops a mis-addressed
-//     one from silently reaching nobody. If a broadcast is truly wanted, the
-//     sender says so with @all.
-func resolveAudience(body string, members []string) (mentions []string, ok bool) {
+//   - no @-token whatsoever → audienceFYI: the sender addressed no one on
+//     purpose, so the message is logged but wakes nobody (pull-only).
+//   - @all (case-insensitive) → audienceBroadcast; an empty Mentions slice is
+//     what the stream treats as "deliver to everyone".
+//   - one or more @<name> matching a present member → audienceDirected with
+//     those members (the stream delivers only to members it names).
+//   - @-token(s) present but none match a present member (prose like
+//     @vercel/otel, a typo, an absent peer) → audienceRefuse: the caller must
+//     refuse. An @-token signals intent to address someone, so a non-matching
+//     one is a likely mistake, not a quiet note.
+func resolveAudience(body string, members []string) (mentions []string, aud audience) {
 	raw := channel.ExtractMentions(body)
 	if len(raw) == 0 {
-		return nil, false
+		return nil, audienceFYI // no addressing intent → quiet note
 	}
 	for _, m := range raw {
 		if strings.EqualFold(m, broadcastToken) {
-			return nil, true // explicit broadcast
+			return nil, audienceBroadcast
 		}
 	}
 	present := channel.FilterMentions(raw, members)
 	if len(present) == 0 {
-		return nil, false // named only unknown/absent peers → refuse
+		return nil, audienceRefuse // named only unknown/absent peers → refuse
 	}
-	return present, true
+	return present, audienceDirected
 }
 
 func cmdSend(args []string) {
@@ -64,21 +84,25 @@ func cmdSend(args []string) {
 		checkForUpdate(d)
 	}
 
-	// Every send must name a reachable audience explicitly — either @all
-	// (broadcast) or one or more @<name> that name a present member. A body with
-	// no such audience is refused rather than silently broadcast (or silently
-	// delivered to nobody), so a message can neither spray the channel by
-	// accident nor vanish because it addressed only a typo/absent peer.
+	// Resolve the delivery tier from the body's addressing (ADR-0010, ADR-0012).
+	// A body that @-mentions someone unreachable is refused — a mis-address should
+	// fail loudly, not vanish. A body with no @-mention at all is a deliberate
+	// FYI: logged for catch-up but pull-only, so it wakes no one. @all and
+	// @<name> deliver as before.
 	members := c.Members()
-	mentions, ok := resolveAudience(body, members)
-	if !ok {
+	mentions, aud := resolveAudience(body, members)
+	if aud == audienceRefuse {
 		fmt.Fprint(os.Stderr,
-			"agent-chat: refusing to send: no reachable audience.\n"+
-				"  Add @all to broadcast to every agent, or @<name> a present member.\n")
+			"agent-chat: refusing to send: your @-mention matched no present member.\n"+
+				"  Fix the name, use @all to broadcast, or drop the @-mention to post a pull-only FYI.\n")
 		if len(members) > 0 {
 			fmt.Fprintf(os.Stderr, "  present members: %s\n", strings.Join(members, ", "))
 		}
 		os.Exit(2)
+	}
+	kind := "msg"
+	if aud == audienceFYI {
+		kind = channel.KindFYI
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -87,7 +111,7 @@ func cmdSend(args []string) {
 		Sender:   as,
 		Cwd:      agentCwd(),
 		Branch:   agentBranch(),
-		Kind:     "msg",
+		Kind:     kind,
 		Body:     body,
 		Mentions: mentions,
 	}); err != nil {
@@ -109,5 +133,9 @@ func cmdSend(args []string) {
 	// has the tick history to be wake-aware.
 	_ = c.RefreshPresence(as)
 
-	fmt.Printf("sent (%d bytes) to %q as %q\n", len(raw), slug, as)
+	if aud == audienceFYI {
+		fmt.Printf("posted FYI (%d bytes) to %q as %q — pull-only, no peer was notified\n", len(raw), slug, as)
+	} else {
+		fmt.Printf("sent (%d bytes) to %q as %q\n", len(raw), slug, as)
+	}
 }

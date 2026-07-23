@@ -75,6 +75,14 @@ type Record struct {
 	Round string `json:"round,omitempty"`
 }
 
+// KindFYI is the record kind for a pull-only note: a message a sender posted
+// with no audience, meaning "record this, but wake no one." It lives in the log
+// like any message — visible to history and catch-up — but the live stream never
+// emits it, so it is never a wake event. It is the quiet tier that lets routine
+// status and breadcrumbs stay on the channel without spending a peer's attention
+// (see ADR-0012), the deliberate-silent counterpart to an addressed send.
+const KindFYI = "fyi"
+
 // Cursor marks a position in the append-only log. The zero value is the start
 // of the log. It is an opaque byte offset; pass the Cursor returned by one
 // ReadSince into the next.

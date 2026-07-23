@@ -1,8 +1,11 @@
 # ADR-0010: Require an explicit audience on every send
 
-- **Status:** Accepted
+- **Status:** Accepted (amended by ADR-0012)
 - **Date:** 2026-07-22
 - **Supersedes:** ADR-0001 (default-broadcast with `@name` narrowing)
+- **Amended by:** ADR-0012 — a genuinely unaddressed send (no `@`-token at all)
+  is no longer refused but posted as a pull-only FYI; the mis-addressed refusal
+  below is unchanged.
 
 ## Context
 
