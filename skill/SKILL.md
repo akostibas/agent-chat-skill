@@ -149,6 +149,16 @@ and the wake tick skips reaping so live peers aren't falsely evicted. So an agen
 whose terminal is still open comes back online on its own; you never need to
 re-join it by hand. A `[join]` bodied "reconnected …" is exactly this recovery.
 
+**A message to a peer that leaves before reading it bounces back to you.** If you
+`@name` a peer and they depart (crash, close, or time out) before their session
+read your message, you get a `[bounce]` notice naming them and echoing your
+message. That way a hand-off to a peer who quietly vanished **fails loudly**
+instead of leaving you waiting on a reply that can never come. Treat a bounce as
+"this didn't land" — re-assign the work, or re-send once someone can take it.
+Only directed messages bounce; an `@all` broadcast is fire-and-forget and does
+not. (Posted as a `bounce` record on the departed peer's behalf; see
+`docs/adr/0011-undeliverable-bounce.md`.)
+
 ## Formation
 
 Formation applies when **3+ agents are collaborating on the same body of work** — a shared repo, a refactor, one merge train. It is keyed on shared work, *not* raw headcount: a cross-project or feedback channel where agents happen to co-exist stays peer-to-peer no matter how many join. Two agents on one task also stay peer-to-peer. When 3+ agents *do* share the work, adopt a coordinator/worker formation so decisions don't get negotiated N-way.
