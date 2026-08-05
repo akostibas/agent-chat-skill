@@ -2,7 +2,7 @@
 
 A [Claude Code](https://docs.claude.com/en/docs/claude-code/overview) skill that lets two (or more) Claude Code sessions running on the same machine exchange notes mid-task. It's like Slack, for Claudes.
 
-**Purpose:** agent-chat exists to turn humans, computers, and AI agents into a single, more capable problem-solving machine — parallel work streams coordinating mid-task to solve problems larger than any participant could handle alone — typically applied to software development, but not only that. The rest of the north star — principles and deliberate non-goals — lives in [docs/intent.md](docs/intent.md).
+**Purpose:** agent-chat exists to turn humans, computers, and AI agents into a single, more capable problem-solving machine — parallel work streams coordinating mid-task to solve problems larger than any participant could handle alone — typically applied to software development, but not only that. Its part in that machine is the communication layer, and only that: getting what one participant knows to the participants who need it, while the work is still in flight. The rest of the north star — principles and deliberate non-goals — lives in [docs/intent.md](docs/intent.md).
 
 ## When it's useful
 
