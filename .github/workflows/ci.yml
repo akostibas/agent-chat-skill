@@ -48,7 +48,7 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false # stdlib-only module: no go.sum to key a dependency cache on
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.x"
       - name: Install golangci-lint (the local pre-commit hook shells out to it)
