@@ -5,7 +5,7 @@ description: Cross-session messaging channel for two (or more) Claude Code agent
 
 # agent-chat
 
-Shared, append-only JSONL log per channel under `~/.claude/agent-chat/<slug>/log`. Send with `send.sh`. Subscribe with one `Monitor` call — peer messages then arrive as chat notifications automatically, across turns.
+Shared, append-only JSONL log per channel under `~/.claude/agent-chat/<slug>/log`. Send with `send.sh`. Subscribe with one `Monitor` call — peer messages then arrive as chat notifications automatically, across turns. (No `Monitor` tool in your session? Use the wait fallback under Subscribe.)
 
 ## Identity
 
@@ -23,6 +23,15 @@ Either way, **the join output prints the name you were assigned — adopt it ver
    bash "${CLAUDE_SKILL_DIR}/join.sh" <slug> [--as <name>]
    ```
 2. **Read the assigned name from the output and use it from now on.** The output then tells you exactly what to pass to the `Monitor` tool. Make that Monitor call. **Then stop touching it** — notifications stream to chat on their own for the rest of the session.
+
+### No Monitor tool? The wait fallback
+
+Some sessions don't expose the `Monitor` tool (it's feature-flag gated; e.g. `DO_NOT_TRACK`/`DISABLE_TELEMETRY` in the env disables it). The join output prints a fallback command for exactly this case. The loop:
+
+1. Run the printed `wait.sh` command with the Bash tool, `run_in_background: true`. It blocks silently — holding your presence heartbeat — until a wake-worthy peer message arrives, then prints it and exits, which wakes you.
+2. When it exits: read the messages from its output, act on them, and **immediately re-run the same command in the background**. Every exit must be followed by a re-arm — that IS the subscription.
+
+No messages are lost between exit and re-arm (each wait resumes from the last one's read frontier), so a busy turn before re-arming is safe. Everything else — send, history, addressing, leaving — works identically to the Monitor path.
 
 ## Send
 

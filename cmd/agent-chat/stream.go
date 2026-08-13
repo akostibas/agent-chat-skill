@@ -70,14 +70,25 @@ func cmdStream(args []string) {
 
 	// Tail the log from the current end — the same poll loop an external peer
 	// would run — emitting peer messages to stdout.
-	if err := tailAndEmit(ctx, c, slug, name); err != nil && err != context.Canceled {
+	seed, err := c.End()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "agent-chat: stream: %v\n", err)
+		return
+	}
+	if err := tailAndEmit(ctx, c, slug, name, seed, false); err != nil && err != context.Canceled {
 		fmt.Fprintf(os.Stderr, "agent-chat: stream: %v\n", err)
 	}
 }
 
-// tailAndEmit polls the channel from its current end via ReadSince and writes
-// filtered, formatted records to stdout. Blocks until ctx is canceled or a read
-// error occurs.
+// tailAndEmit polls the channel from seed via ReadSince and writes filtered,
+// formatted records to stdout. With oneShot false it blocks until ctx is
+// canceled or a read error occurs; with oneShot true it returns nil as soon as
+// at least one record has been emitted (the wait command's exit-to-wake
+// contract). One-shot limitation: a timed-out [leave] still inside its hold
+// window when a message triggers the exit is dropped, not emitted — the read
+// frontier has moved past it and the next wait seeds later. A missed departure
+// notice is recoverable from history; a false-flap wake is not, so the
+// debounce keeps priority.
 //
 // Sleep-flap debounce (issue #39): a stdout line here is a peer wake event, so a
 // spurious departure costs a subscriber a turn. When the host sleeps and wakes,
@@ -90,12 +101,9 @@ func cmdStream(args []string) {
 // covers a flap from ANY source (the stream heartbeat, a one-shot send, an
 // external Go peer), so it is the backstop even if a source-side reap slips
 // through.
-func tailAndEmit(ctx context.Context, c *channel.Channel, slug, me string) error {
+func tailAndEmit(ctx context.Context, c *channel.Channel, slug, me string, seed channel.Cursor, oneShot bool) error {
 	deb := newFlapDebouncer(holdWindow())
-	cur, err := c.End()
-	if err != nil {
-		return err
-	}
+	cur := seed
 	// Persist the read frontier so that if this stream dies, the reaper can tell
 	// which directed messages went unread and bounce them to their senders
 	// (ADR-0011). Seed it at the start point, then advance it as records are
@@ -113,6 +121,7 @@ func tailAndEmit(ctx context.Context, c *channel.Channel, slug, me string) error
 			return err
 		}
 		cur = next
+		emitted := false
 		for _, r := range recs {
 			if r.Sender == me {
 				continue
@@ -131,6 +140,7 @@ func tailAndEmit(ctx context.Context, c *channel.Channel, slug, me string) error
 			}
 			for _, e := range deb.offer(r, time.Now()) {
 				emitStreamRecord(os.Stdout, e, slug)
+				emitted = true
 			}
 		}
 		// Advance the persisted read frontier past everything just consumed: the
@@ -147,6 +157,10 @@ func tailAndEmit(ctx context.Context, c *channel.Channel, slug, me string) error
 		// quirk behind the bug, working for us.
 		for _, e := range deb.expired(time.Now()) {
 			emitStreamRecord(os.Stdout, e, slug)
+			emitted = true
+		}
+		if oneShot && emitted {
+			return nil
 		}
 		if len(recs) == 0 {
 			time.Sleep(100 * time.Millisecond)
