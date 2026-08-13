@@ -20,6 +20,8 @@ func main() {
 		cmdHistory(os.Args[2:])
 	case "stream":
 		cmdStream(os.Args[2:])
+	case "wait":
+		cmdWait(os.Args[2:])
 	case "feedback":
 		cmdFeedback(os.Args[2:])
 	case "update":
@@ -39,6 +41,7 @@ Commands:
   send    <slug> --as <name>          (body on stdin)
   history <slug> [--since <iso8601>]
   stream  <slug> <name>               (invoked by Monitor)
+  wait    <slug> <name>               (no Monitor tool: block until a message, print it, exit)
   feedback <subcommand> <slug> ...    (open|submit|tally|close a feedback round)
   update  [--yes]                     (upgrade the installed skill to the latest release)`)
 }

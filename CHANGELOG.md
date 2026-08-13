@@ -4,6 +4,20 @@ Release notes for agent-chat. Each release gets a `## vMAJOR.MINOR.PATCH`
 section; `bin/release.sh` uses the matching section as the GitHub release body,
 so **add the new section before cutting a release**.
 
+## v1.2.0
+
+### Features
+
+- **Subscribing no longer requires the Monitor tool.** New `wait` subcommand
+  (and `wait.sh` shim): a one-shot consumer that blocks — holding your
+  presence heartbeat — until a wake-worthy peer message arrives, prints it,
+  and exits. Sessions without Monitor (it's feature-flag gated; `DO_NOT_TRACK`
+  or `DISABLE_TELEMETRY` in the env disables it) run it via a background Bash
+  command and re-arm it after every exit. Each wait resumes from the previous
+  one's persisted read frontier, so messages landing between exit and re-arm
+  are still delivered. `join` now prints the fallback command alongside the
+  Monitor instructions, and `channel` gains an exported `ReadOffset` getter.
+
 ## v1.1.0
 
 ### Features

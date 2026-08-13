@@ -75,22 +75,8 @@ func cmdJoin(args []string) {
 
 	// Build the Monitor command pointing at the stream.sh shim so it's
 	// backward-compatible with sessions that have the old invocation style.
-	streamCmd := ""
-	if d := selfDir(); d != "" {
-		shim := d + "/stream.sh"
-		if _, err := os.Stat(shim); err == nil {
-			streamCmd = fmt.Sprintf("bash %q %q %q", shim, slug, as)
-		}
-	}
-	if streamCmd == "" {
-		if exe, err := os.Executable(); err == nil {
-			streamCmd = fmt.Sprintf("%q stream %q %q", exe, slug, as)
-		} else {
-			streamCmd = fmt.Sprintf("agent-chat stream %q %q", slug, as)
-		}
-	}
-
-	streamCmd = withChannelRoot(streamCmd, os.Getenv("AGENT_CHAT_ROOT"))
+	streamCmd := subscribeCmd("stream", slug, as)
+	waitCmd := subscribeCmd("wait", slug, as)
 
 	if generated {
 		fmt.Printf("Joined channel %q as %q (auto-generated — no --as given).\n", slug, as)
@@ -104,9 +90,38 @@ func cmdJoin(args []string) {
 	fmt.Printf("  timeout_ms: 3600000\n")
 	fmt.Printf("  command: %s\n\n", streamCmd)
 	fmt.Printf("After that, peer messages will arrive automatically as notifications for the\n")
-	fmt.Printf("rest of this session. Do not call Monitor again for this channel.\n")
+	fmt.Printf("rest of this session. Do not call Monitor again for this channel.\n\n")
+	fmt.Printf("NO Monitor tool in your session? Subscribe with the wait fallback instead:\n")
+	fmt.Printf("  1. Run this with the Bash tool, run_in_background=true:\n")
+	fmt.Printf("       %s\n", waitCmd)
+	fmt.Printf("  2. It blocks silently, then exits printing new peer messages — when it\n")
+	fmt.Printf("     exits, read them and IMMEDIATELY re-run the same command in the\n")
+	fmt.Printf("     background. Repeat every time it exits. No messages are lost in the\n")
+	fmt.Printf("     gap; a slow re-arm just delays your presence heartbeat.\n")
 
 	printFeedbackNudge(c, slug, as)
+}
+
+// subscribeCmd builds the command an agent runs to subscribe via the given
+// subcommand ("stream" for Monitor, "wait" for the Monitor-free fallback),
+// preferring the matching .sh shim next to this binary and propagating a
+// non-default channel root.
+func subscribeCmd(sub, slug, as string) string {
+	cmd := ""
+	if d := selfDir(); d != "" {
+		shim := d + "/" + sub + ".sh"
+		if _, err := os.Stat(shim); err == nil {
+			cmd = fmt.Sprintf("bash %q %q %q", shim, slug, as)
+		}
+	}
+	if cmd == "" {
+		if exe, err := os.Executable(); err == nil {
+			cmd = fmt.Sprintf("%q %s %q %q", exe, sub, slug, as)
+		} else {
+			cmd = fmt.Sprintf("agent-chat %s %q %q", sub, slug, as)
+		}
+	}
+	return withChannelRoot(cmd, os.Getenv("AGENT_CHAT_ROOT"))
 }
 
 // withChannelRoot prefixes a Monitor stream command with the AGENT_CHAT_ROOT

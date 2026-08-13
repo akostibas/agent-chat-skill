@@ -47,6 +47,18 @@ func (c *Channel) ClearReadOffset(name string) error {
 	return err
 }
 
+// ReadOffset returns name's persisted read frontier and whether one is
+// recorded. A consumer resuming after an exit (the wait command re-arming)
+// seeds from it so records that landed while it was away are still delivered.
+// ok is false when no frontier exists — the caller should then start from the
+// log's end rather than replaying the whole history from offset 0.
+func (c *Channel) ReadOffset(name string) (off int64, ok bool) {
+	if _, err := os.Stat(c.cursorFile(name)); err != nil {
+		return 0, false
+	}
+	return c.readOffset(name), true
+}
+
 // readOffset returns name's persisted read frontier, or 0 if none is recorded or
 // it can't be parsed. Defaulting to 0 is deliberately conservative: a peer with
 // no recorded frontier is assumed to have read nothing, so its directed messages
