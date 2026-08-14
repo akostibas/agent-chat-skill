@@ -44,25 +44,96 @@ const (
 //     what the stream treats as "deliver to everyone".
 //   - one or more @<name> matching a present member → audienceDirected with
 //     those members (the stream delivers only to members it names).
-//   - @-token(s) present but none match a present member (prose like
-//     @vercel/otel, a typo, an absent peer) → audienceRefuse: the caller must
-//     refuse. An @-token signals intent to address someone, so a non-matching
-//     one is a likely mistake, not a quiet note.
-func resolveAudience(body string, members []string) (mentions []string, aud audience) {
+//   - @-token(s) present but none match a present member (a typo, an absent
+//     peer) → audienceRefuse: the caller must refuse. An @-token signals intent
+//     to address someone, so a non-matching one is a likely mistake, not a quiet
+//     note. An @-token that is merely quoted — wrapped in a markdown code span,
+//     like `@dependabot rebase` — never reaches this scan at all, so quoting a
+//     bot command or a scoped package sends without rewording (issue #57).
+//
+// unmatched carries the offending tokens when aud is audienceRefuse, so the
+// refusal can quote back exactly what failed; it is nil otherwise.
+func resolveAudience(body string, members []string) (mentions, unmatched []string, aud audience) {
 	raw := channel.ExtractMentions(body)
 	if len(raw) == 0 {
-		return nil, audienceFYI // no addressing intent → quiet note
+		return nil, nil, audienceFYI // no addressing intent → quiet note
 	}
 	for _, m := range raw {
 		if strings.EqualFold(m, broadcastToken) {
-			return nil, audienceBroadcast
+			return nil, nil, audienceBroadcast
 		}
 	}
 	present := channel.FilterMentions(raw, members)
 	if len(present) == 0 {
-		return nil, audienceRefuse // named only unknown/absent peers → refuse
+		return nil, raw, audienceRefuse // named only unknown/absent peers → refuse
 	}
-	return present, audienceDirected
+	return present, nil, audienceDirected
+}
+
+// quoteTokens renders unmatched mention tokens back to the sender the way they
+// were written, so the refusal names the actual offender instead of the generic
+// "your @-mention".
+func quoteTokens(tokens []string) string {
+	switch len(tokens) {
+	case 0:
+		return "your @-mention" // defensive: refuse always carries ≥1 token
+	case 1:
+		return "@" + tokens[0]
+	}
+	q := make([]string, len(tokens))
+	for i, t := range tokens {
+		q[i] = "@" + t
+	}
+	return strings.Join(q, ", ")
+}
+
+// firstToken is the token the escape example is built from — showing the
+// sender's own text is what makes the fix copy-pasteable.
+func firstToken(tokens []string) string {
+	if len(tokens) == 0 {
+		return "@token" // defensive: refuse always carries ≥1 token
+	}
+	return "@" + tokens[0]
+}
+
+// nearestMember returns the present member an unmatched token most plausibly
+// meant, or "" if none is close. It exists to order the refusal's advice, not to
+// decide anything: guessing intent is a non-goal (ADR-0013), so a near miss
+// still refuses — it just leads with "did you mean" instead of with the quoting
+// escape. Leading with the wrong fix is the exact complaint issue #57 made about
+// the old text, and it would be self-defeating to reintroduce it in the fix.
+func nearestMember(tokens, members []string) string {
+	best, bestDist := "", 3 // only a distance of 1 or 2 counts as "close"
+	for _, t := range tokens {
+		for _, m := range members {
+			if d := editDistance(strings.ToLower(t), strings.ToLower(m)); d < bestDist {
+				best, bestDist = m, d
+			}
+		}
+	}
+	return best
+}
+
+// editDistance is Levenshtein over bytes, bounded in practice by the 40-byte
+// mention cap.
+func editDistance(a, b string) int {
+	prev := make([]int, len(b)+1)
+	curr := make([]int, len(b)+1)
+	for j := range prev {
+		prev[j] = j
+	}
+	for i := 1; i <= len(a); i++ {
+		curr[0] = i
+		for j := 1; j <= len(b); j++ {
+			cost := 1
+			if a[i-1] == b[j-1] {
+				cost = 0
+			}
+			curr[j] = min(prev[j]+1, min(curr[j-1]+1, prev[j-1]+cost))
+		}
+		prev, curr = curr, prev
+	}
+	return prev[len(b)]
 }
 
 func cmdSend(args []string) {
@@ -90,11 +161,27 @@ func cmdSend(args []string) {
 	// FYI: logged for catch-up but pull-only, so it wakes no one. @all and
 	// @<name> deliver as before.
 	members := c.Members()
-	mentions, aud := resolveAudience(body, members)
+	mentions, unmatched, aud := resolveAudience(body, members)
 	if aud == audienceRefuse {
-		fmt.Fprint(os.Stderr,
-			"agent-chat: refusing to send: your @-mention matched no present member.\n"+
-				"  Fix the name, use @all to broadcast, or drop the @-mention to post a pull-only FYI.\n")
+		fmt.Fprintf(os.Stderr,
+			"agent-chat: refusing to send: no present member matches %s.\n",
+			quoteTokens(unmatched))
+		// Name the escape here, not only in SKILL.md — an escape nobody discovers
+		// is not a fix (issue #57). Lead with whichever fix is likelier: a token
+		// one or two edits off a present name is a typo, anything else is probably
+		// content the sender wants to quote.
+		if near := nearestMember(unmatched, members); near != "" {
+			fmt.Fprintf(os.Stderr, "  Did you mean @%s?\n", near)
+			fmt.Fprintf(os.Stderr,
+				"  If you did mean it literally, wrap it in backticks to quote it: `%s`\n"+
+					"  — quoted tokens address no one.\n", firstToken(unmatched))
+		} else {
+			fmt.Fprintf(os.Stderr,
+				"  If you meant it literally (a bot command, a package name), wrap it in\n"+
+					"  backticks to quote it: `%s` — quoted tokens address no one.\n"+
+					"  Otherwise fix the name, use @all to broadcast, or drop the @ to post a\n"+
+					"  pull-only FYI.\n", firstToken(unmatched))
+		}
 		if len(members) > 0 {
 			fmt.Fprintf(os.Stderr, "  present members: %s\n", strings.Join(members, ", "))
 		}

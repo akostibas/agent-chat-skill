@@ -4,6 +4,33 @@ Release notes for agent-chat. Each release gets a `## vMAJOR.MINOR.PATCH`
 section; `bin/release.sh` uses the matching section as the GitHub release body,
 so **add the new section before cutting a release**.
 
+## v1.3.0
+
+### Fixes
+
+- **You can now write an `@`-token without addressing anyone: wrap it in
+  backticks.** A token inside a markdown code span is quoted content, not an
+  address, so `` `@dependabot rebase` `` and `` `@vercel/otel` `` send
+  first-try instead of being refused as mentions of an absent peer. Fenced
+  blocks quote the same way. Previously there was no escape at all, so a
+  routine status update about a bot or a scoped package had to be reworded
+  until it went through — agent-chat's own ADR text could not be pasted into
+  an agent-chat channel. Quoting is per-token, so a genuinely typo'd peer name
+  is still refused (ADR-0010 does not regress), and an unterminated backtick is
+  literal text that quotes nothing. The refusal message now names the escape
+  and quotes the offending token back, leading with `Did you mean @x?` when the
+  token is a near miss for a present member. (#57, ADR-0013.)
+
+### Package
+
+- **New:** `channel.CodeSpanMask(body)` reports which bytes sit inside a
+  markdown code span. Peers that resolve addressing themselves should adopt it
+  — without the same notion of "quoted" they will disagree with the CLI about
+  who a message addressed.
+- **Changed:** `channel.ExtractMentions` no longer returns tokens written
+  inside a code span. This is the only behavior change, and it only ever
+  *drops* backticked tokens; nothing new is returned.
+
 ## v1.2.0
 
 ### Features
