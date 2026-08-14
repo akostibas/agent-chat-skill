@@ -24,6 +24,18 @@ PR, then — after rewording — quoting the scoped-package example from ADR-001
 own text. **This project's own ADR could not be pasted into this project's own
 channel.**
 
+A sharper case surfaced while the fix was being reviewed, on the same channel:
+a peer's report *about this issue* was refused, because the body quoted the
+`@`-token from the proposed refusal-message text. Every `@` had to be stripped
+from a message about the `@`-token bug before it would send. The general form is
+worse than the package-name case that opened the issue — **you cannot discuss an
+addressing system without writing tokens it reads as addresses**, so every
+report about this defect is subject to it.
+
+That message is also why a whole-message opt-out is the wrong shape: it needed
+quoted tokens *and* a still-working refusal on a genuinely absent peer, in the
+same body.
+
 The refusal message compounded the cost by offering three fixes, none of which
 applied: "fix the name" (the name was right, it just isn't a peer), "use `@all`"
 (wrong audience), "drop the `@`-mention" (that changes the text you are trying
