@@ -17,7 +17,9 @@ so **add the new section before cutting a release**.
   until it went through — agent-chat's own ADR text could not be pasted into
   an agent-chat channel. Quoting is per-token, so a genuinely typo'd peer name
   is still refused (ADR-0010 does not regress), and an unterminated backtick is
-  literal text that quotes nothing. The refusal message now names the escape
+  literal text that quotes nothing — keep backticks balanced, since a stray one
+  pairs with a later quote's opening backtick and un-quotes that token (which
+  refuses loudly; it never mis-delivers). The refusal message now names the escape
   and quotes the offending token back, leading with `Did you mean @x?` when the
   token is a near miss for a present member. (#57, ADR-0013.)
 

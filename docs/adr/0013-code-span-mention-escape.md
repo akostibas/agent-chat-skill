@@ -59,7 +59,20 @@ Two properties carry most of the weight:
   every token the sender did not deliberately quote.
 - **An unterminated run is literal and quotes nothing.** A stray backtick
   therefore cannot silently swallow the addresses after it — the failure mode
-  of a quoting rule is that it quotes too much, and this bounds it.
+  of a quoting rule is that it quotes too much, and this bounds it. Note what
+  "unterminated" means precisely: a run is unterminated only if *no later run
+  of the same length* exists. A stray backtick followed by a genuinely quoted
+  token will pair with that token's **opening** backtick, leaving the token
+  itself outside the span and unquoted (standard CommonMark pairing). So a
+  stray backtick can un-quote a later token — it just cannot mask one.
+
+  That distinction is the whole safety argument: mis-pairing surfaces as a
+  **refusal**, never as silence. Un-quoting a token can only ever *add* an
+  unmatched mention, which is exit 2 in the sender's face; masking a token —
+  the direction that would cause silent under-delivery — is what an
+  unterminated run cannot do. Verified live on channel `test`: a body carrying
+  both a stray backtick and a quoted token was refused, naming the token,
+  while a body with a stray backtick and a real address delivered directed.
 
 The escape is named **in the refusal message itself**, quoting the offending
 token back with a copy-pasteable example. An escape discoverable only from
