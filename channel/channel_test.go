@@ -54,6 +54,13 @@ func TestExtractMentions(t *testing.T) {
 		{"`@alice", []string{"alice"}},
 		// Two spans in one body, each quoting independently.
 		{"`@alice` and `@bob` are both quoted", nil},
+		// Greedy left-to-right pairing: a stray backtick pairs with the OPENING
+		// delimiter of a later span, leaving that token unquoted. Hit live while
+		// testing the fix. This is the safe direction — the token resurfaces as a
+		// mention (refused loudly) rather than being masked (silent under-delivery)
+		// — but it must stay pinned, because the unsafe direction is one greedy-vs-
+		// lazy change away.
+		{"stray ` then `@alice` quoted", []string{"alice"}},
 	}
 	for _, tc := range cases {
 		got := ExtractMentions(tc.body)

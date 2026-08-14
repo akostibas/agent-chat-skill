@@ -53,6 +53,12 @@ func ExtractMentions(body string) []string {
 // text and masks nothing, so a lone stray backtick can't silence the rest of a
 // message. Fenced blocks fall out of the same rule (``` opens, ``` closes).
 //
+// Pairing is greedy and left-to-right, as in CommonMark: a stray backtick pairs
+// with the next same-length run, which may be the opening delimiter of a span
+// the writer intended. That un-quotes the intended token rather than masking it
+// — the safe direction, since an extra unmatched mention is refused loudly
+// while a masked one would under-deliver in silence.
+//
 // The mask is what makes an @token quotable: `@dependabot` is content, while a
 // bare @dependabot is still an address. Exported because peers that import this
 // package resolve mentions themselves and need the same notion of "quoted".
