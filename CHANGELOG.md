@@ -23,10 +23,13 @@ so **add the new section before cutting a release**.
 
 ### Package
 
-- `channel.ExtractMentions` no longer returns tokens written inside a code
-  span — the only behavior change, and it only ever *drops* backticked tokens.
-  An importing peer that resolves addressing itself will see it. New exported
-  `channel.CodeSpanMask` gives such peers the same notion of "quoted".
+- **New:** `channel.CodeSpanMask(body)` reports which bytes sit inside a
+  markdown code span. Peers that resolve addressing themselves should adopt it
+  — without the same notion of "quoted" they will disagree with the CLI about
+  who a message addressed.
+- **Changed:** `channel.ExtractMentions` no longer returns tokens written
+  inside a code span. This is the only behavior change, and it only ever
+  *drops* backticked tokens; nothing new is returned.
 
 ## v1.2.0
 
