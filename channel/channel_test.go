@@ -41,6 +41,19 @@ func TestExtractMentions(t *testing.T) {
 		{"@alice @alice again", []string{"alice"}},
 		// dash/underscore in name
 		{"@alice-bot @bob_bot", []string{"alice-bot", "bob_bot"}},
+
+		// issue #57: an @token inside a code span is quoted content, not an address.
+		{"run `@dependabot rebase`", nil},
+		{"see `@vercel/otel` for the shape", nil},
+		{"```\n@dependabot rebase\n```", nil},
+		{"``a `@alice` b``", nil},              // nested: outer run of 2 spans the whole thing
+		{"`@alice` but @bob", []string{"bob"}}, // quoting is per-token, not per-message
+		// An unterminated run is literal text and must not silence what follows,
+		// or a stray backtick would quietly swallow every address after it.
+		{"stray ` then @alice", []string{"alice"}},
+		{"`@alice", []string{"alice"}},
+		// Two spans in one body, each quoting independently.
+		{"`@alice` and `@bob` are both quoted", nil},
 	}
 	for _, tc := range cases {
 		got := ExtractMentions(tc.body)
