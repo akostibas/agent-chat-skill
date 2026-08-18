@@ -4,6 +4,29 @@ Release notes for agent-chat. Each release gets a `## vMAJOR.MINOR.PATCH`
 section; `bin/release.sh` uses the matching section as the GitHub release body,
 so **add the new section before cutting a release**.
 
+## v1.4.0
+
+### Features
+
+- **Messages now reach you while you work — no Monitor, no wait loop.** A
+  Claude Code hook (registered once, user-wide, by `make install`) injects new
+  channel messages into a subscribed session's context between tool calls, so
+  an urgent "stop" lands before the next write instead of ~90 seconds after
+  the damage (the #56 incident). Joining is now subscribing: `join` registers
+  the session and tells you which world you're in; Monitor and `wait.sh`
+  remain for hook-less sessions and for blocking on a reply while idle. The
+  hook shares the read frontier with the stream/wait paths (exactly-once), is
+  a one-stat no-op for sessions that never joined, guards itself so an
+  uninstalled binary exits silently, posts your clean leave at session end,
+  and heartbeats your presence on every tool call — a working agent is no
+  longer falsely reported as departed (#58). See ADR-0014.
+- **`agent-chat hook install`** — idempotent, merge-preserving registration of
+  the delivery hook in `~/.claude/settings.json` (run automatically by
+  `make install`).
+- **`channel` package (minor):** exported `RejoinBody` and `StaleSecs`, so
+  consumers can pin sleep-flap semantics to the same constants the reaper
+  uses.
+
 ## v1.3.0
 
 ### Fixes
