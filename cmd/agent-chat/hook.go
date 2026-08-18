@@ -59,13 +59,15 @@ func cmdHook(args []string) {
 
 	var out strings.Builder
 	var kept []membership
-	for _, m := range ms {
+	for i := range ms {
+		m := &ms[i]
 		c, err := channel.Open(root, m.Slug)
 		if err != nil || !c.Exists() {
 			continue // channel swept or deleted: prune the membership
 		}
-		kept = append(kept, m)
 		deliverChannel(ctx, &out, c, m, reapOK)
+		nagDeadDoorbell(&out, root, m)
+		kept = append(kept, *m)
 	}
 	_ = writeMemberships(path, kept)
 
@@ -81,7 +83,7 @@ func cmdHook(args []string) {
 // calls is alive by definition — the fix for issue #58's false departures),
 // and, wake permitting, a reap pass so an all-hook channel still retires dead
 // peers.
-func deliverChannel(ctx context.Context, out *strings.Builder, c *channel.Channel, m membership, reapOK bool) {
+func deliverChannel(ctx context.Context, out *strings.Builder, c *channel.Channel, m *membership, reapOK bool) {
 	if created, err := c.EnsurePresence(m.Name); err == nil && created {
 		_ = c.Append(ctx, channel.Record{
 			Sender: m.Name,
@@ -97,14 +99,23 @@ func deliverChannel(ctx context.Context, out *strings.Builder, c *channel.Channe
 
 	off, ok := c.ReadOffset(m.Name)
 	if !ok {
-		// No frontier (joined before frontier seeding existed, or it was
-		// cleared): start from now — history is for catch-up, not wakes.
 		end, err := c.End()
 		if err != nil {
 			return
 		}
-		_ = c.SaveReadOffset(m.Name, end.Offset())
-		return
+		// A missing cursor with a valid mirror means a reap cleared it while
+		// this session lived: resume from the mirror so the reap window's
+		// traffic is delivered late, not lost. (A mirror past the log end is
+		// from a recreated channel — fall through to a fresh seed.) With no
+		// mirror at all, start from now: history is for catch-up, not wakes.
+		if m.Offset > 0 && m.Offset <= end.Offset() {
+			off = m.Offset
+			_ = c.SaveReadOffset(m.Name, off)
+		} else {
+			_ = c.SaveReadOffset(m.Name, end.Offset())
+			m.Offset = end.Offset()
+			return
+		}
 	}
 	recs, next, err := c.ReadSince(ctx, channel.CursorAt(off))
 	if err != nil {
@@ -130,11 +141,32 @@ func deliverChannel(ctx context.Context, out *strings.Builder, c *channel.Channe
 		}
 	}
 	_ = c.SaveReadOffset(m.Name, next.Offset())
+	m.Offset = next.Offset()
 }
 
 // maxHookRecords caps how many records one hook fire injects as context. A
 // burst beyond it costs the agent a history call instead of a context flood.
 const maxHookRecords = 8
+
+// nagDeadDoorbell appends a re-arm reminder when this peer's doorbell lockfile
+// exists but no process holds it — armed once, now dead. This is the cron-free
+// self-heal: the reminder rides the delivery hook, so it reaches the agent on
+// its next activity, which is the only time it could re-arm anyway. A doorbell
+// that never existed is an agent that never opted in — stay quiet. The brief
+// recheck absorbs the just-armed race (a fresh doorbell's flock lands a beat
+// after the arming tool call returns).
+func nagDeadDoorbell(out *strings.Builder, root string, m *membership) {
+	exists, armed := doorbellState(root, m.Slug, m.Name)
+	if !exists || armed {
+		return
+	}
+	time.Sleep(300 * time.Millisecond)
+	if _, armed = doorbellState(root, m.Slug, m.Name); armed {
+		return
+	}
+	fmt.Fprintf(out, "(agent-chat: your idle doorbell for channel %q died — re-arm it now, run_in_background: %s --signal — or delete %s to stop these reminders)\n",
+		m.Slug, subscribeCmd("wait", m.Slug, m.Name), doorbellPath(root, m.Slug, m.Name))
+}
 
 // hookWorthy is the stream path's wake filter (skip self, FYI, and directed
 // records naming someone else) plus stateless flap suppression: the hook has
@@ -173,6 +205,7 @@ func sessionEndLeave(root string, ms []membership) {
 		_ = c.Leave(m.Name, "left channel")
 		_ = c.RemovePresence(m.Name)
 		_ = c.ClearReadOffset(m.Name)
+		_ = os.Remove(doorbellPath(root, m.Slug, m.Name))
 	}
 }
 

@@ -27,6 +27,12 @@ var sessionIDRE = regexp.MustCompile(`^[a-zA-Z0-9._-]{1,80}$`)
 type membership struct {
 	Slug string `json:"slug"`
 	Name string `json:"name"`
+	// Offset mirrors the peer's read frontier as of the last hook fire. It is
+	// the recovery seed for the reap race found live in #60's testing: ReapStale
+	// clears the cursor file, and a resurrected peer reseeding at the log END
+	// would silently skip everything sent during the reap window. The mirror
+	// lets the hook resume from the last delivered point instead.
+	Offset int64 `json:"offset,omitempty"`
 }
 
 // currentSessionID returns the session id Claude Code exports to Bash
@@ -78,10 +84,11 @@ func writeMemberships(path string, ms []membership) error {
 	return os.WriteFile(path, buf.Bytes(), 0644)
 }
 
-// registerSession records that this session is <name> on <slug>. A re-join of
-// the same slug replaces the old entry (the name may have changed). No-op
-// without a session id — a peer outside Claude Code just has no registry.
-func registerSession(root, slug, name string) {
+// registerSession records that this session is <name> on <slug>, with offset
+// seeding the frontier mirror. A re-join of the same slug replaces the old
+// entry (the name may have changed). No-op without a session id — a peer
+// outside Claude Code just has no registry.
+func registerSession(root, slug, name string, offset int64) {
 	sid := currentSessionID()
 	if sid == "" {
 		return
@@ -94,7 +101,7 @@ func registerSession(root, slug, name string) {
 			kept = append(kept, m)
 		}
 	}
-	_ = writeMemberships(path, append(kept, membership{Slug: slug, Name: name}))
+	_ = writeMemberships(path, append(kept, membership{Slug: slug, Name: name, Offset: offset}))
 }
 
 // deregisterSession drops this session's membership of slug (e.g. on a clean

@@ -75,13 +75,16 @@ func cmdJoin(args []string) {
 
 	// Seed the read frontier at the join point: delivery (hook or wait) starts
 	// from "now", and ADR-0011's bounce logic sees an honest frontier instead
-	// of the conservative 0 a never-subscribed peer would report.
-	if _, ok := c.ReadOffset(as); !ok {
-		if end, err := c.End(); err == nil {
-			_ = c.SaveReadOffset(as, end.Offset())
-		}
+	// of the conservative 0 a never-subscribed peer would report. The same
+	// offset seeds the registry's frontier mirror.
+	var seedOff int64
+	if off, ok := c.ReadOffset(as); ok {
+		seedOff = off
+	} else if end, err := c.End(); err == nil {
+		_ = c.SaveReadOffset(as, end.Offset())
+		seedOff = end.Offset()
 	}
-	registerSession(channelRoot(), slug, as)
+	registerSession(channelRoot(), slug, as, seedOff)
 
 	// Build the Monitor command pointing at the stream.sh shim so it's
 	// backward-compatible with sessions that have the old invocation style.
@@ -101,10 +104,13 @@ func cmdJoin(args []string) {
 	if currentSessionID() != "" && hookInstalled() {
 		fmt.Printf("You are SUBSCRIBED: the agent-chat delivery hook is installed, so new peer\n")
 		fmt.Printf("messages will be injected into your context automatically as you work.\n")
-		fmt.Printf("Do NOT call Monitor and do NOT run a wait loop — just keep working.\n\n")
-		fmt.Printf("Only if you need to BLOCK until a peer speaks (idle, waiting on a reply),\n")
-		fmt.Printf("run this in the background and read its output when it exits:\n")
-		fmt.Printf("  %s\n", waitCmd)
+		fmt.Printf("Do NOT call Monitor.\n\n")
+		fmt.Printf("Now ARM YOUR IDLE DOORBELL (one Bash call, run_in_background=true):\n")
+		fmt.Printf("  %s --signal\n", waitCmd)
+		fmt.Printf("It blocks silently, keeps your presence alive while you idle, and exits when\n")
+		fmt.Printf("peer traffic arrives — waking you if you were idle. On ANY wake: make a tool\n")
+		fmt.Printf("call (the hook injects the messages), then re-arm the same command. If it\n")
+		fmt.Printf("ever dies, the hook reminds you to re-arm.\n")
 		printFeedbackNudge(c, slug, as)
 		return
 	}

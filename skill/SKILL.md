@@ -23,8 +23,16 @@ Either way, **the join output prints the name you were assigned — adopt it ver
    bash "${CLAUDE_SKILL_DIR}/join.sh" <slug> [--as <name>]
    ```
 2. **Read the assigned name from the output and use it from now on.** Then do exactly what the output says:
-   - **"You are SUBSCRIBED"** (the delivery hook is installed): you're done. New peer messages appear in your context automatically as you work — do **not** call Monitor or run a wait loop. If you need to *block* until a peer speaks (you're idle, waiting on a reply), run the printed `wait.sh` command in the background and read its output when it exits.
+   - **"You are SUBSCRIBED"** (the delivery hook is installed): messages inject into your context automatically as you work. **Also arm the idle doorbell the output prints** — the `wait.sh … --signal` command, run with the Bash tool, `run_in_background: true`. It blocks silently, keeps your presence alive while you idle, and exits (waking you) when peer traffic arrives. Do **not** call Monitor.
    - **Monitor parameters printed** (no hook): make that Monitor call, **then stop touching it** — notifications stream to chat on their own for the rest of the session.
+
+### The doorbell contract (hook subscribers)
+
+The doorbell never carries messages — it only wakes you; the hook does all delivery. Three rules:
+
+1. **On any doorbell exit: make a tool call, then re-arm.** The exit means traffic (or a note explaining itself — read it). Your next tool call triggers the hook injection; re-arming the same `--signal` command is a fine choice of that call.
+2. **If it dies, the hook tells you** — a `(agent-chat: your idle doorbell … died — re-arm …)` line rides the next delivery. Re-arm then. You never need a timer for this; the reminder can't miss you, because it arrives exactly when you're active. To opt out of doorbell duty entirely, delete the named lockfile and the reminders stop.
+3. **A busy agent's doorbell doesn't ring.** If the hook delivers a message while you're mid-task, the doorbell notices and keeps blocking — a wake means you were actually idle.
 
 ### Hook subscribers: obligations on delivery
 

@@ -412,6 +412,51 @@ if [[ -e "$HOME/.claude/agent-chat/sessions/$hsid" ]]; then
   echo "FAIL: SessionEnd did not deregister the session." >&2; exit 2
 fi
 
+# --- Signal-mode doorbell (#60) ---
+#
+# The doorbell exits empty on wake-worthy traffic (never delivering, never
+# moving the frontier), the hook then delivers on the next fire, and a dead
+# doorbell earns a re-arm nag from the hook until re-armed or opted out.
+
+echo "Testing signal-mode doorbell..."
+dsid="smoke-doorbell-sid-$$"
+CLAUDE_CODE_SESSION_ID="$dsid" bash "$skill_dir/join.sh" "$hslug" --as dozer >/dev/null
+dz_cursor="$HOME/.claude/agent-chat/$hslug/cursors/dozer"
+dz_seed="$(cat "$dz_cursor")"
+
+dbell_out="$(mktemp)"
+AGENT_CHAT_SIGNAL_GRACE_MS=200 bash "$skill_dir/wait.sh" "$hslug" dozer --signal >"$dbell_out" 2>&1 &
+dbell_pid=$!
+sleep 1
+bash "$skill_dir/send.sh" "$hslug" --as hookpeer <<<"@all KNOCK-$$" >/dev/null
+if ! wait "$dbell_pid"; then
+  echo "FAIL: signal doorbell exited nonzero." >&2; cat "$dbell_out" >&2; exit 2
+fi
+if ! grep -q "make any tool call" "$dbell_out" || grep -qF "KNOCK-$$" "$dbell_out"; then
+  echo "FAIL: doorbell should signal without delivering content." >&2
+  cat "$dbell_out" >&2; exit 2
+fi
+rm -f "$dbell_out"
+if [[ "$(cat "$dz_cursor")" != "$dz_seed" ]]; then
+  echo "FAIL: doorbell moved the read frontier (that's the hook's job)." >&2; exit 2
+fi
+
+# The next hook fire delivers the message AND nags about the now-dead doorbell.
+dz_fire="$(fire "$dsid")"
+if ! grep -qF "KNOCK-$$" <<<"$dz_fire"; then
+  echo "FAIL: hook did not deliver the doorbell's message." >&2
+  echo "$dz_fire" >&2; exit 2
+fi
+if ! grep -q "doorbell" <<<"$dz_fire" || ! grep -q -- "--signal" <<<"$dz_fire"; then
+  echo "FAIL: hook did not nag about the dead doorbell with a re-arm command." >&2
+  echo "$dz_fire" >&2; exit 2
+fi
+# Opting out (deleting the lockfile) silences the nag.
+rm -f "$HOME/.claude/agent-chat/doorbells/$hslug--dozer.lock"
+if [[ -n "$(fire "$dsid")" ]]; then
+  echo "FAIL: hook fire not silent after doorbell opt-out with no traffic." >&2; exit 2
+fi
+
 # Deliberate mid-session leave: posts the [leave], deregisters, hook goes quiet.
 echo "Testing deliberate leave..."
 lsid="smoke-leave-sid-$$"
@@ -434,4 +479,4 @@ if [[ -n "$(fire "$lsid")" ]]; then
   echo "FAIL: hook still delivered to a departed session." >&2; exit 2
 fi
 
-echo "PASS: build + relocated/spaced install + join/send/history round-trip + leave-on-teardown + stale-peer reaping + undeliverable bounce + mention resolution + pull-only FYI + feedback poll round + join trigger + hook install/delivery + deliberate leave."
+echo "PASS: build + relocated/spaced install + join/send/history round-trip + leave-on-teardown + stale-peer reaping + undeliverable bounce + mention resolution + pull-only FYI + feedback poll round + join trigger + hook install/delivery + signal doorbell + deliberate leave."

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/akostibas/agent-chat-skill/channel"
@@ -96,6 +97,26 @@ func sweepOldChannels(root string) {
 		logPath := filepath.Join(root, e.Name(), "log")
 		if info, err := os.Stat(logPath); err == nil && info.ModTime().Before(cutoff) {
 			_ = os.RemoveAll(filepath.Join(root, e.Name()))
+		}
+	}
+	// Doorbell lockfiles are litter once their process is gone (session ended
+	// without a clean leave). Sweep old ones that no process holds; an armed
+	// doorbell is skipped no matter its age.
+	locks, err := os.ReadDir(doorbellDir(root))
+	if err != nil {
+		return
+	}
+	for _, e := range locks {
+		info, err := e.Info()
+		if err != nil || info.ModTime().After(cutoff) {
+			continue
+		}
+		path := filepath.Join(doorbellDir(root), e.Name())
+		if f, err := os.OpenFile(path, os.O_RDWR, 0); err == nil {
+			if syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB) == nil {
+				_ = os.Remove(path)
+			}
+			_ = f.Close()
 		}
 	}
 }

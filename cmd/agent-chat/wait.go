@@ -27,14 +27,27 @@ import (
 // A signal (session close, user kill) is a genuine departure and does post
 // leave, exactly like stream.
 func cmdWait(args []string) {
-	if len(args) != 2 {
-		fmt.Fprintln(os.Stderr, "usage: agent-chat wait <slug> <name>")
+	signalMode := false
+	var pos []string
+	for _, a := range args {
+		if a == "--signal" {
+			signalMode = true
+			continue
+		}
+		pos = append(pos, a)
+	}
+	if len(pos) != 2 {
+		fmt.Fprintln(os.Stderr, "usage: agent-chat wait <slug> <name> [--signal]")
 		os.Exit(1)
 	}
-	slug := args[0]
-	name := args[1]
+	slug := pos[0]
+	name := pos[1]
 	validateIdent("slug", slug)
 	validateIdent("name", name)
+	if signalMode {
+		cmdWaitSignal(slug, name)
+		return
+	}
 
 	c := openChannel(slug)
 	if !c.Exists() {
