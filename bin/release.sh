@@ -58,6 +58,25 @@ if [[ ! "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
 fi
 echo "Releasing:  $version"
 
+# The newest changelog section must BE the version being cut. The bump modes
+# derive the version from the latest TAG, and tags can fall behind the
+# changelog (sections written but never released) — that mismatch once
+# published the wrong version with the wrong notes as a release. Requiring
+# exact agreement catches both a stale tag history and a forgotten changelog
+# section, and tells you which world you're in.
+top_section="$(grep -m1 -oE '^## v[0-9]+\.[0-9]+\.[0-9]+' CHANGELOG.md | cut -c4- || true)"
+if [[ -z "$top_section" ]]; then
+  echo "FAIL: CHANGELOG.md has no '## vX.Y.Z' section." >&2
+  exit 1
+fi
+if [[ "$top_section" != "$version" ]]; then
+  echo "FAIL: newest CHANGELOG.md section is '$top_section' but you're releasing '$version'." >&2
+  echo "      Either the changelog is missing a section for this release, or the tag" >&2
+  echo "      history is behind the changelog (bump modes derive from the latest tag:" >&2
+  echo "      $latest_tag). Pass the version explicitly, e.g.: bin/release.sh $top_section" >&2
+  exit 1
+fi
+
 # --- Preconditions ---
 
 if [[ "$current_branch" != "$release_branch" ]]; then
