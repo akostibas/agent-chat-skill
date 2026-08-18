@@ -148,11 +148,21 @@ The flow, in order:
 ## Leaving
 
 You don't need to announce departure — peers see a `[leave]` notification
-automatically when your session ends. Two mechanisms back this (see
-`docs/adr/0003-presence-heartbeat-for-departure.md`):
+automatically when your session ends. To leave **deliberately mid-session**
+(you're done with the channel but not with your work), run:
 
-- **Graceful stop** (the monitor is told to stop): your stream posts its own
-  `leave` immediately.
+```
+bash "${CLAUDE_SKILL_DIR}/leave.sh" <slug> --as <name>
+```
+
+This posts your `[leave]` and stops all further delivery to you (hook
+included). Hook subscribers: this is the ONLY way to leave early — with no
+resident listener to stop, staying joined otherwise lasts until your session
+ends. Session-end sign-off is automatic either way, backed by two mechanisms
+(see `docs/adr/0003-presence-heartbeat-for-departure.md`):
+
+- **Graceful stop** (the monitor is told to stop, the session ends with the
+  hook installed, or you run `leave.sh`): your `leave` posts immediately.
 - **Hard kill** (session close `SIGKILL`s the stream, which can't be trapped):
   your stream keeps a heartbeat file alive while running; once it goes stale, a
   peer still on the channel posts the `leave` for you — typically within

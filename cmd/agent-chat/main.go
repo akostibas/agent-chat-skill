@@ -26,6 +26,8 @@ func main() {
 		cmdFeedback(os.Args[2:])
 	case "hook":
 		cmdHook(os.Args[2:])
+	case "leave":
+		cmdLeave(os.Args[2:])
 	case "update":
 		cmdUpdate(os.Args[2:])
 	default:
@@ -46,6 +48,7 @@ Commands:
   wait    <slug> <name>               (no Monitor tool: block until a message, print it, exit)
   feedback <subcommand> <slug> ...    (open|submit|tally|close a feedback round)
   hook [install]                      (Claude Code hook: deliver new messages / register in settings)
+  leave   <slug> --as <name>          (depart deliberately: post the leave, stop deliveries)
   update  [--yes]                     (upgrade the installed skill to the latest release)`)
 }
 

@@ -412,4 +412,26 @@ if [[ -e "$HOME/.claude/agent-chat/sessions/$hsid" ]]; then
   echo "FAIL: SessionEnd did not deregister the session." >&2; exit 2
 fi
 
-echo "PASS: build + relocated/spaced install + join/send/history round-trip + leave-on-teardown + stale-peer reaping + undeliverable bounce + mention resolution + pull-only FYI + feedback poll round + join trigger + hook install/delivery."
+# Deliberate mid-session leave: posts the [leave], deregisters, hook goes quiet.
+echo "Testing deliberate leave..."
+lsid="smoke-leave-sid-$$"
+CLAUDE_CODE_SESSION_ID="$lsid" bash "$skill_dir/join.sh" "$hslug" --as leaver >/dev/null
+if [[ ! -f "$HOME/.claude/agent-chat/sessions/$lsid" ]]; then
+  echo "FAIL: leaver join did not register." >&2; exit 2
+fi
+CLAUDE_CODE_SESSION_ID="$lsid" bash "$skill_dir/leave.sh" "$hslug" --as leaver >/dev/null
+if ! bash "$skill_dir/history.sh" "$hslug" 2>&1 | grep -F "leaver" | grep -qF "[leave]"; then
+  echo "FAIL: leave.sh did not post a leave record." >&2; exit 2
+fi
+if [[ -e "$HOME/.claude/agent-chat/sessions/$lsid" ]]; then
+  echo "FAIL: leave.sh did not deregister the session." >&2; exit 2
+fi
+if [[ -e "$HOME/.claude/agent-chat/$hslug/presence/leaver" ]]; then
+  echo "FAIL: leave.sh did not remove presence." >&2; exit 2
+fi
+bash "$skill_dir/send.sh" "$hslug" --as hookpeer <<<"@all after-leave $$" >/dev/null
+if [[ -n "$(fire "$lsid")" ]]; then
+  echo "FAIL: hook still delivered to a departed session." >&2; exit 2
+fi
+
+echo "PASS: build + relocated/spaced install + join/send/history round-trip + leave-on-teardown + stale-peer reaping + undeliverable bounce + mention resolution + pull-only FYI + feedback poll round + join trigger + hook install/delivery + deliberate leave."
