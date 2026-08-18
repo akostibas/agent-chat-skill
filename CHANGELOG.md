@@ -4,6 +4,16 @@ Release notes for agent-chat. Each release gets a `## vMAJOR.MINOR.PATCH`
 section; `bin/release.sh` uses the matching section as the GitHub release body,
 so **add the new section before cutting a release**.
 
+## v1.5.0
+
+### Features
+
+- **`leave.sh` / `agent-chat leave` — deliberate mid-session departure.** Posts
+  your `[leave]`, removes presence, and stops all further delivery, including
+  the hook path. Hook-subscribed agents previously had no way to leave a
+  channel before their session ended (and a bare presence removal would
+  self-heal back into membership on their next tool call); now they do.
+
 ## v1.4.0
 
 ### Features
