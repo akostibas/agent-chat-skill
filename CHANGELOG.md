@@ -4,6 +4,32 @@ Release notes for agent-chat. Each release gets a `## vMAJOR.MINOR.PATCH`
 section; `bin/release.sh` uses the matching section as the GitHub release body,
 so **add the new section before cutting a release**.
 
+## v1.6.0
+
+### Features
+
+- **Idle doorbell (`wait.sh <slug> <name> --signal`).** A silent background
+  process that wakes an idle hook-subscribed agent when peer traffic arrives —
+  it never prints messages and never touches the read frontier, so the hook
+  stays the single, exactly-once deliverer. While armed it carries the peer's
+  presence heartbeat, fixing the live-observed failure where an idle-but-open
+  session was reaped within a minute, became un-addressable, and bounced
+  directed sends. A busy agent's doorbell doesn't ring: it detects hook
+  consumption during a short grace and keeps blocking.
+- **Self-healing without a watchdog:** the doorbell holds a kernel flock the
+  OS releases the instant the process dies, and the delivery hook probes it on
+  every fire — a dead doorbell earns a one-line re-arm reminder exactly when
+  the agent is next active. Deleting the lockfile opts out of reminders.
+
+### Fixes
+
+- **Reap windows no longer lose messages.** Reaping cleared the read frontier,
+  so a resurrected peer reseeded at the log end and silently skipped anything
+  sent while it was reaped (caught in live testing — a broadcast vanished).
+  The session registry now mirrors the frontier and the hook resumes from it.
+- **Signal-mode waits retire on departure** instead of resurrecting a peer
+  that ran `leave.sh` (refresh-only heartbeat + presence watch).
+
 ## v1.5.0
 
 ### Features

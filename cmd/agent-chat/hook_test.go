@@ -43,15 +43,15 @@ func TestSessionRegistry(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("CLAUDE_CODE_SESSION_ID", "sid-123")
 
-	registerSession(root, "alpha", "amy")
-	registerSession(root, "beta", "bob")
+	registerSession(root, "alpha", "amy", 0)
+	registerSession(root, "beta", "bob", 0)
 	path := sessionFile(root, "sid-123")
 	if got := readMemberships(path); len(got) != 2 {
 		t.Fatalf("want 2 memberships, got %v", got)
 	}
 
 	// Re-join of the same slug replaces the entry rather than duplicating it.
-	registerSession(root, "alpha", "amy2")
+	registerSession(root, "alpha", "amy2", 0)
 	ms := readMemberships(path)
 	if len(ms) != 2 {
 		t.Fatalf("re-join duplicated: %v", ms)
@@ -81,7 +81,7 @@ func TestSessionRegistry(t *testing.T) {
 func TestSessionRegistryRejectsUnsafeID(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("CLAUDE_CODE_SESSION_ID", "../../escape")
-	registerSession(root, "alpha", "amy")
+	registerSession(root, "alpha", "amy", 0)
 	if matches, _ := filepath.Glob(filepath.Join(root, "sessions", "*")); len(matches) != 0 {
 		t.Fatalf("unsafe session id produced registry entries: %v", matches)
 	}
@@ -111,12 +111,12 @@ func TestDeliverChannelExactlyOnce(t *testing.T) {
 	}
 
 	var out strings.Builder
-	deliverChannel(ctx, &out, c, membership{Slug: "test", Name: "me"}, true)
+	deliverChannel(ctx, &out, c, &membership{Slug: "test", Name: "me"}, true)
 	if !strings.Contains(out.String(), "hello me") {
 		t.Fatalf("first fire should deliver the message, got: %q", out.String())
 	}
 	out.Reset()
-	deliverChannel(ctx, &out, c, membership{Slug: "test", Name: "me"}, true)
+	deliverChannel(ctx, &out, c, &membership{Slug: "test", Name: "me"}, true)
 	if out.Len() != 0 {
 		t.Fatalf("second fire must deliver nothing (frontier advanced), got: %q", out.String())
 	}
@@ -136,14 +136,14 @@ func TestDeliverChannelSeedsWithoutFrontier(t *testing.T) {
 	}
 
 	var out strings.Builder
-	deliverChannel(ctx, &out, c, membership{Slug: "test", Name: "me"}, true)
+	deliverChannel(ctx, &out, c, &membership{Slug: "test", Name: "me"}, true)
 	if out.Len() != 0 {
 		t.Fatalf("seeding fire must not replay history, got: %q", out.String())
 	}
 	if err := c.Append(ctx, channel.Record{Sender: "peer", Kind: "msg", Body: "after subscribe"}); err != nil {
 		t.Fatal(err)
 	}
-	deliverChannel(ctx, &out, c, membership{Slug: "test", Name: "me"}, true)
+	deliverChannel(ctx, &out, c, &membership{Slug: "test", Name: "me"}, true)
 	if !strings.Contains(out.String(), "after subscribe") || strings.Contains(out.String(), "before subscribe") {
 		t.Fatalf("want only post-seed records, got: %q", out.String())
 	}
@@ -163,7 +163,7 @@ func TestDeliverChannelCapsBurst(t *testing.T) {
 		}
 	}
 	var out strings.Builder
-	deliverChannel(ctx, &out, c, membership{Slug: "test", Name: "me"}, true)
+	deliverChannel(ctx, &out, c, &membership{Slug: "test", Name: "me"}, true)
 	if got := strings.Count(out.String(), "[20"); got > maxHookRecords { // record headers carry the ts year
 		t.Fatalf("emitted %d records, cap is %d", got, maxHookRecords)
 	}

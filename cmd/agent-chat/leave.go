@@ -25,6 +25,9 @@ func cmdLeave(args []string) {
 	_ = c.RemovePresence(as)
 	_ = c.ClearReadOffset(as)
 	deregisterSession(channelRoot(), slug)
+	// The armed doorbell notices the missing presence and retires itself;
+	// removing its lockfile keeps the hook from ever nagging about it.
+	_ = os.Remove(doorbellPath(channelRoot(), slug, as))
 	fmt.Printf("Left channel %q as %q. You will receive no further messages from it;\n", slug, as)
 	fmt.Printf("re-join to subscribe again.\n")
 }
