@@ -60,7 +60,11 @@ body="ping from smoke test $$"
 # --- Join (creates the channel) ---
 
 echo "Joining channel $slug as $name..."
-join_out="$(bash "$skill_dir/join.sh" "$slug" --as "$name" 2>&1)"
+# Run from a neutral cwd: hookInstalled() also consults the PROJECT's
+# .claude/settings.json at the git root of the joining cwd, and this repo's may
+# legitimately carry the hook — which would flip this join to the subscribed
+# story and break the Monitor assertions below.
+join_out="$(cd "$tmphome" && CLAUDE_CODE_SESSION_ID="smoke-early-$$" bash "$skill_dir/join.sh" "$slug" --as "$name" 2>&1)"
 
 # The Monitor command must reference stream.sh inside THIS install's dir.
 if ! grep -qF "$skill_dir/stream.sh" <<<"$join_out"; then
@@ -68,6 +72,12 @@ if ! grep -qF "$skill_dir/stream.sh" <<<"$join_out"; then
   echo "----- output -----" >&2
   echo "$join_out" >&2
   exit 2
+fi
+
+# A hook-less Claude Code session must be nudged toward the hook upgrade.
+if ! grep -q "hook install" <<<"$join_out"; then
+  echo "FAIL: hook-less join did not nudge about 'hook install'." >&2
+  echo "----- output -----" >&2; echo "$join_out" >&2; exit 2
 fi
 
 # --- Send a message ---
@@ -336,4 +346,70 @@ if bash "$skill_dir/feedback.sh" tally "$zslug" >/dev/null 2>&1; then
   echo "FAIL: rate=0 join opened a round." >&2; exit 2
 fi
 
-echo "PASS: build + relocated/spaced install + join/send/history round-trip + leave-on-teardown + stale-peer reaping + undeliverable bounce + mention resolution + pull-only FYI + feedback poll round + join trigger."
+# --- Hook-based delivery (#59) ---
+#
+# Runs last on purpose: it writes $HOME/.claude/settings.json, and every
+# assertion above must see the hook-free world (Monitor instructions on join).
+
+echo "Testing hook install (idempotent settings.json merge)..."
+hbin="$skill_dir/agent-chat"
+mkdir -p "$HOME/.claude"
+cat > "$HOME/.claude/settings.json" <<'EOF'
+{"model":"opus","hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"other-tool guard"}]}]}}
+EOF
+"$hbin" hook install >/dev/null
+python3 - "$HOME/.claude/settings.json" <<'PY'
+import json, sys
+s = json.load(open(sys.argv[1]))
+assert s["model"] == "opus", "foreign top-level key lost"
+pre = json.dumps(s["hooks"]["PreToolUse"])
+assert "other-tool guard" in pre, "foreign hook lost"
+for ev in ("PostToolUse", "UserPromptSubmit", "SessionEnd"):
+    flat = json.dumps(s["hooks"].get(ev, []))
+    assert 'exec \\"$BIN\\" hook' in flat or 'exec "$BIN" hook' in flat, f"agent-chat hook missing from {ev}"
+PY
+if ! "$hbin" hook install | grep -q "already registered"; then
+  echo "FAIL: second hook install was not a no-op." >&2; exit 2
+fi
+
+echo "Testing hook-based delivery..."
+hslug="smoke-hook-$$"
+hsid="smoke-sid-$$"
+
+# A join inside a hook-installed session registers itself and says so.
+hjoin_out="$(CLAUDE_CODE_SESSION_ID="$hsid" bash "$skill_dir/join.sh" "$hslug" --as hooked 2>&1)"
+if ! grep -q "SUBSCRIBED" <<<"$hjoin_out"; then
+  echo "FAIL: hook-installed join did not print the subscribed story." >&2
+  echo "----- join output -----" >&2; echo "$hjoin_out" >&2; exit 2
+fi
+if [[ ! -f "$HOME/.claude/agent-chat/sessions/$hsid" ]]; then
+  echo "FAIL: join did not register the session." >&2; exit 2
+fi
+
+# A peer's send arrives on the next hook fire as additionalContext — and only once.
+bash "$skill_dir/send.sh" "$hslug" --as hookpeer <<<"@all URGENT-STOP-$$" >/dev/null
+fire() { printf '{"session_id":"%s","hook_event_name":"PostToolUse"}' "$1" | "$hbin" hook; }
+hook_out="$(fire "$hsid")"
+if ! grep -qF "URGENT-STOP-$$" <<<"$hook_out" || ! grep -qF '"additionalContext"' <<<"$hook_out"; then
+  echo "FAIL: hook fire did not deliver the peer message as additionalContext." >&2
+  echo "----- hook output -----" >&2; echo "$hook_out" >&2; exit 2
+fi
+if [[ -n "$(fire "$hsid")" ]]; then
+  echo "FAIL: second hook fire re-delivered (frontier did not advance)." >&2; exit 2
+fi
+
+# A session that never joined pays nothing and prints nothing.
+if [[ -n "$(fire "never-joined-$$")" ]]; then
+  echo "FAIL: non-member session got hook output." >&2; exit 2
+fi
+
+# SessionEnd posts the clean leave and deregisters.
+printf '{"session_id":"%s","hook_event_name":"SessionEnd"}' "$hsid" | "$hbin" hook
+if ! bash "$skill_dir/history.sh" "$hslug" 2>&1 | grep -F "hooked" | grep -qF "[leave]"; then
+  echo "FAIL: SessionEnd did not post a leave for the hook subscriber." >&2; exit 2
+fi
+if [[ -e "$HOME/.claude/agent-chat/sessions/$hsid" ]]; then
+  echo "FAIL: SessionEnd did not deregister the session." >&2; exit 2
+fi
+
+echo "PASS: build + relocated/spaced install + join/send/history round-trip + leave-on-teardown + stale-peer reaping + undeliverable bounce + mention resolution + pull-only FYI + feedback poll round + join trigger + hook install/delivery."

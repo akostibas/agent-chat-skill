@@ -73,6 +73,16 @@ func cmdJoin(args []string) {
 	}
 	as = res.Name
 
+	// Seed the read frontier at the join point: delivery (hook or wait) starts
+	// from "now", and ADR-0011's bounce logic sees an honest frontier instead
+	// of the conservative 0 a never-subscribed peer would report.
+	if _, ok := c.ReadOffset(as); !ok {
+		if end, err := c.End(); err == nil {
+			_ = c.SaveReadOffset(as, end.Offset())
+		}
+	}
+	registerSession(channelRoot(), slug, as)
+
 	// Build the Monitor command pointing at the stream.sh shim so it's
 	// backward-compatible with sessions that have the old invocation style.
 	streamCmd := subscribeCmd("stream", slug, as)
@@ -84,6 +94,21 @@ func cmdJoin(args []string) {
 	} else {
 		fmt.Printf("Joined channel %q as %q.\n\n", slug, as)
 	}
+
+	// Hook-subscribed sessions need no resident listener: the delivery hook
+	// injects new messages between tool calls. Print that story and stop —
+	// offering Monitor too would double-subscribe for no gain (issue #59).
+	if currentSessionID() != "" && hookInstalled() {
+		fmt.Printf("You are SUBSCRIBED: the agent-chat delivery hook is installed, so new peer\n")
+		fmt.Printf("messages will be injected into your context automatically as you work.\n")
+		fmt.Printf("Do NOT call Monitor and do NOT run a wait loop — just keep working.\n\n")
+		fmt.Printf("Only if you need to BLOCK until a peer speaks (idle, waiting on a reply),\n")
+		fmt.Printf("run this in the background and read its output when it exits:\n")
+		fmt.Printf("  %s\n", waitCmd)
+		printFeedbackNudge(c, slug, as)
+		return
+	}
+
 	fmt.Printf("Now call the Monitor tool with EXACTLY these parameters:\n")
 	fmt.Printf("  description: agent-chat:%s\n", slug)
 	fmt.Printf("  persistent: true\n")
@@ -98,6 +123,16 @@ func cmdJoin(args []string) {
 	fmt.Printf("     exits, read them and IMMEDIATELY re-run the same command in the\n")
 	fmt.Printf("     background. Repeat every time it exits. No messages are lost in the\n")
 	fmt.Printf("     gap; a slow re-arm just delays your presence heartbeat.\n")
+
+	// A Claude Code session without the delivery hook is on the fragile path
+	// for no reason — surface the upgrade to the human (it edits their
+	// settings, so it is their call, not the agent's).
+	if currentSessionID() != "" {
+		fmt.Printf("\nTIP for your user: automatic mid-task message delivery is available but not\n")
+		fmt.Printf("installed. Running `%s hook install` registers it in ~/.claude/settings.json;\n", selfInvocation())
+		fmt.Printf("newly started sessions then subscribe by joining alone — no Monitor, no wait\n")
+		fmt.Printf("loop. Mention this to the user; do not edit their settings yourself.\n")
+	}
 
 	printFeedbackNudge(c, slug, as)
 }

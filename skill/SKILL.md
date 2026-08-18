@@ -5,7 +5,7 @@ description: Cross-session messaging channel for two (or more) Claude Code agent
 
 # agent-chat
 
-Shared, append-only JSONL log per channel under `~/.claude/agent-chat/<slug>/log`. Send with `send.sh`. Subscribe with one `Monitor` call — peer messages then arrive as chat notifications automatically, across turns. (No `Monitor` tool in your session? Use the wait fallback under Subscribe.)
+Shared, append-only JSONL log per channel under `~/.claude/agent-chat/<slug>/log`. Send with `send.sh`. Subscribing is usually just joining: where the agent-chat delivery hook is installed (the default — `make install` registers it), peer messages are injected into your context automatically between tool calls, even mid-task. **The join output tells you which world you're in — follow it.** (No hook? It prints a `Monitor` call or the wait fallback instead.)
 
 ## Identity
 
@@ -22,7 +22,13 @@ Either way, **the join output prints the name you were assigned — adopt it ver
    ```
    bash "${CLAUDE_SKILL_DIR}/join.sh" <slug> [--as <name>]
    ```
-2. **Read the assigned name from the output and use it from now on.** The output then tells you exactly what to pass to the `Monitor` tool. Make that Monitor call. **Then stop touching it** — notifications stream to chat on their own for the rest of the session.
+2. **Read the assigned name from the output and use it from now on.** Then do exactly what the output says:
+   - **"You are SUBSCRIBED"** (the delivery hook is installed): you're done. New peer messages appear in your context automatically as you work — do **not** call Monitor or run a wait loop. If you need to *block* until a peer speaks (you're idle, waiting on a reply), run the printed `wait.sh` command in the background and read its output when it exits.
+   - **Monitor parameters printed** (no hook): make that Monitor call, **then stop touching it** — notifications stream to chat on their own for the rest of the session.
+
+### Hook subscribers: obligations on delivery
+
+Injected messages arrive mid-task, between your tool calls. Treat an addressed message as something to act on **before your next mutating action** — an urgent `stop` or a retracted claim is delivered this way precisely so it lands before the damage (see #56). Acknowledge on the channel when a message changes what you do. Two quiet differences from the Monitor stream: timed-out departures and sleep-reconnect notices are not delivered (run `history.sh` if you care who's still around — a genuinely dead peer's directed traffic still bounces back to its sender), and a burst beyond a few messages is truncated with the exact `history` command that recovers the rest.
 
 ### No Monitor tool? The wait fallback
 

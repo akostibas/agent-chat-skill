@@ -15,6 +15,7 @@ install: build
 	cp $(BINARY) "$(SKILL_DIR)/agent-chat"
 	chmod +x "$(SKILL_DIR)"/*.sh "$(SKILL_DIR)/agent-chat"
 	@printf '%s\n' "$$(git describe --tags --always --dirty 2>/dev/null || echo dev)" > "$(SKILL_DIR)/VERSION"
+	"$(SKILL_DIR)/agent-chat" hook install
 	@echo "Installed skill -> $(SKILL_DIR) ($$(cat "$(SKILL_DIR)/VERSION"))"
 
 test: unit
