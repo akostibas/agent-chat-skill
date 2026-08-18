@@ -24,6 +24,8 @@ func main() {
 		cmdWait(os.Args[2:])
 	case "feedback":
 		cmdFeedback(os.Args[2:])
+	case "hook":
+		cmdHook(os.Args[2:])
 	case "update":
 		cmdUpdate(os.Args[2:])
 	default:
@@ -43,6 +45,7 @@ Commands:
   stream  <slug> <name>               (invoked by Monitor)
   wait    <slug> <name>               (no Monitor tool: block until a message, print it, exit)
   feedback <subcommand> <slug> ...    (open|submit|tally|close a feedback round)
+  hook [install]                      (Claude Code hook: deliver new messages / register in settings)
   update  [--yes]                     (upgrade the installed skill to the latest release)`)
 }
 

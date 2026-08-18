@@ -45,6 +45,7 @@ func cmdStream(args []string) {
 		emitLeave()
 		_ = c.RemovePresence(name)
 		_ = c.ClearReadOffset(name)
+		deregisterSession(channelRoot(), slug)
 	}()
 
 	// Intercept SIGINT/SIGTERM/SIGHUP so we announce departure before exit.
@@ -55,6 +56,7 @@ func cmdStream(args []string) {
 		emitLeave()
 		_ = c.RemovePresence(name)
 		_ = c.ClearReadOffset(name)
+		deregisterSession(channelRoot(), slug)
 		cancel()
 		os.Exit(0)
 	}()

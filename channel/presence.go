@@ -210,7 +210,7 @@ func (c *Channel) heartbeatTick(r Record, gap time.Duration, staleSecs int) {
 // not that the peer is absent — its presence file already exists.
 func (c *Channel) announceRejoin(r Record) {
 	r.Kind = "join"
-	r.Body = "reconnected (presence had been reaped — host likely slept)"
+	r.Body = RejoinBody
 	r.Ts = ""
 	r.Mentions = nil
 	_ = c.Append(context.Background(), r)

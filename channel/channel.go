@@ -51,12 +51,25 @@ const defaultHeartbeatSecs = 15
 // never drift.
 const LeaveBodyTimedOut = "left channel (timed out)"
 
+// RejoinBody is the body of the [join] a peer posts when it reasserts presence
+// after being reaped (EnsurePresence created the file anew). Exported for the
+// same reason as LeaveBodyTimedOut: it is the other half of a sleep flap, and a
+// consumer that suppresses flap noise must match both records by one pinned
+// constant each.
+const RejoinBody = "reconnected (presence had been reaped — host likely slept)"
+
 // HeartbeatSecs returns the effective heartbeat interval in seconds, honoring
 // AGENT_CHAT_HEARTBEAT_SECS (default defaultHeartbeatSecs). It is the single
 // source of truth for the beat period, so a consumer sizing a window off the
 // heartbeat (e.g. a flap-debounce hold) tracks the same env override instead of
 // hardcoding a second constant.
 func HeartbeatSecs() int { return envInt("AGENT_CHAT_HEARTBEAT_SECS", defaultHeartbeatSecs) }
+
+// StaleSecs returns the effective presence-staleness threshold in seconds,
+// honoring AGENT_CHAT_STALE_SECS. Exported for the same reason as
+// HeartbeatSecs: a consumer deciding whether a clock gap means "the host just
+// slept" must use the same window the reaper does.
+func StaleSecs() int { return envInt("AGENT_CHAT_STALE_SECS", defaultStaleSecs) }
 
 // Record is a single JSONL entry in the channel log. Field names and omitempty
 // rules are the published schema — they must stay byte-identical to what the

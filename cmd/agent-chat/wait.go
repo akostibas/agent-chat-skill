@@ -51,6 +51,7 @@ func cmdWait(args []string) {
 			_ = c.Leave(name, "left channel")
 			_ = c.RemovePresence(name)
 			_ = c.ClearReadOffset(name)
+			deregisterSession(channelRoot(), slug)
 		})
 	}
 

@@ -73,6 +73,16 @@ func cmdJoin(args []string) {
 	}
 	as = res.Name
 
+	// Seed the read frontier at the join point: delivery (hook or wait) starts
+	// from "now", and ADR-0011's bounce logic sees an honest frontier instead
+	// of the conservative 0 a never-subscribed peer would report.
+	if _, ok := c.ReadOffset(as); !ok {
+		if end, err := c.End(); err == nil {
+			_ = c.SaveReadOffset(as, end.Offset())
+		}
+	}
+	registerSession(channelRoot(), slug, as)
+
 	// Build the Monitor command pointing at the stream.sh shim so it's
 	// backward-compatible with sessions that have the old invocation style.
 	streamCmd := subscribeCmd("stream", slug, as)
@@ -84,6 +94,21 @@ func cmdJoin(args []string) {
 	} else {
 		fmt.Printf("Joined channel %q as %q.\n\n", slug, as)
 	}
+
+	// Hook-subscribed sessions need no resident listener: the delivery hook
+	// injects new messages between tool calls. Print that story and stop —
+	// offering Monitor too would double-subscribe for no gain (issue #59).
+	if currentSessionID() != "" && hookInstalled() {
+		fmt.Printf("You are SUBSCRIBED: the agent-chat delivery hook is installed, so new peer\n")
+		fmt.Printf("messages will be injected into your context automatically as you work.\n")
+		fmt.Printf("Do NOT call Monitor and do NOT run a wait loop — just keep working.\n\n")
+		fmt.Printf("Only if you need to BLOCK until a peer speaks (idle, waiting on a reply),\n")
+		fmt.Printf("run this in the background and read its output when it exits:\n")
+		fmt.Printf("  %s\n", waitCmd)
+		printFeedbackNudge(c, slug, as)
+		return
+	}
+
 	fmt.Printf("Now call the Monitor tool with EXACTLY these parameters:\n")
 	fmt.Printf("  description: agent-chat:%s\n", slug)
 	fmt.Printf("  persistent: true\n")
