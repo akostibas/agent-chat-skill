@@ -60,7 +60,11 @@ body="ping from smoke test $$"
 # --- Join (creates the channel) ---
 
 echo "Joining channel $slug as $name..."
-join_out="$(bash "$skill_dir/join.sh" "$slug" --as "$name" 2>&1)"
+# Run from a neutral cwd: hookInstalled() also consults the PROJECT's
+# .claude/settings.json at the git root of the joining cwd, and this repo's may
+# legitimately carry the hook — which would flip this join to the subscribed
+# story and break the Monitor assertions below.
+join_out="$(cd "$tmphome" && CLAUDE_CODE_SESSION_ID="smoke-early-$$" bash "$skill_dir/join.sh" "$slug" --as "$name" 2>&1)"
 
 # The Monitor command must reference stream.sh inside THIS install's dir.
 if ! grep -qF "$skill_dir/stream.sh" <<<"$join_out"; then
@@ -68,6 +72,12 @@ if ! grep -qF "$skill_dir/stream.sh" <<<"$join_out"; then
   echo "----- output -----" >&2
   echo "$join_out" >&2
   exit 2
+fi
+
+# A hook-less Claude Code session must be nudged toward the hook upgrade.
+if ! grep -q "hook install" <<<"$join_out"; then
+  echo "FAIL: hook-less join did not nudge about 'hook install'." >&2
+  echo "----- output -----" >&2; echo "$join_out" >&2; exit 2
 fi
 
 # --- Send a message ---

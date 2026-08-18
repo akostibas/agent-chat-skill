@@ -124,6 +124,16 @@ func cmdJoin(args []string) {
 	fmt.Printf("     background. Repeat every time it exits. No messages are lost in the\n")
 	fmt.Printf("     gap; a slow re-arm just delays your presence heartbeat.\n")
 
+	// A Claude Code session without the delivery hook is on the fragile path
+	// for no reason — surface the upgrade to the human (it edits their
+	// settings, so it is their call, not the agent's).
+	if currentSessionID() != "" {
+		fmt.Printf("\nTIP for your user: automatic mid-task message delivery is available but not\n")
+		fmt.Printf("installed. Running `%s hook install` registers it in ~/.claude/settings.json;\n", selfInvocation())
+		fmt.Printf("newly started sessions then subscribe by joining alone — no Monitor, no wait\n")
+		fmt.Printf("loop. Mention this to the user; do not edit their settings yourself.\n")
+	}
+
 	printFeedbackNudge(c, slug, as)
 }
 

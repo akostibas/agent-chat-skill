@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -142,16 +143,30 @@ func ensureHookEntry(hooks map[string]any, event, cmd string) bool {
 	return true
 }
 
-// hookInstalled reports whether the delivery hook is registered in the user's
-// settings — join uses it to decide whether to print the "you're already
-// subscribed" story or the Monitor/wait instructions. It must parse rather
-// than grep: the marker contains quotes, which the JSON on disk escapes.
+// hookInstalled reports whether the delivery hook is registered anywhere this
+// session's harness would load it: user settings, or the project's checked-in /
+// local settings (the project root is where Claude Code resolves them — the
+// live test in #59 was a project-level install, which the first cut missed).
+// join uses it to decide whether to print the "you're already subscribed"
+// story or the Monitor/wait instructions.
 func hookInstalled() bool {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return false
+	var paths []string
+	if home, err := os.UserHomeDir(); err == nil {
+		paths = append(paths, filepath.Join(home, ".claude", "settings.json"))
 	}
-	data, err := os.ReadFile(filepath.Join(home, ".claude", "settings.json"))
+	if root := agentCwd(); root != "" {
+		paths = append(paths,
+			filepath.Join(root, ".claude", "settings.json"),
+			filepath.Join(root, ".claude", "settings.local.json"))
+	}
+	return slices.ContainsFunc(paths, settingsHasHook)
+}
+
+// settingsHasHook reports whether the settings file at path registers our
+// PostToolUse delivery command. It must parse rather than grep: the marker
+// contains quotes, which the JSON on disk escapes.
+func settingsHasHook(path string) bool {
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return false
 	}
