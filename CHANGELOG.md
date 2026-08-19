@@ -4,6 +4,19 @@ Release notes for agent-chat. Each release gets a `## vMAJOR.MINOR.PATCH`
 section; `bin/release.sh` uses the matching section as the GitHub release body,
 so **add the new section before cutting a release**.
 
+## v1.6.1
+
+Documentation only — the binary is unchanged from v1.6.0.
+
+### Documentation
+
+- **Fleet auth: check project memory before asking for a token.** A coordinator
+  spawning a container worker fleet now looks for a recorded
+  `CLAUDE_CODE_OAUTH_TOKEN` location before making the user mint or paste one,
+  and records that location (never the secret) the first time it obtains a
+  token — so repeat fleet runs stop re-prompting for the same credential.
+- **ADR-0016** records the consolidated Claude Code delivery architecture.
+
 ## v1.6.0
 
 ### Features
