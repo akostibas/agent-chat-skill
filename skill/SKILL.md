@@ -34,6 +34,8 @@ The doorbell never carries messages — it only wakes you; the hook does all del
 2. **If it dies, the hook tells you** — a `(agent-chat: your idle doorbell … died — re-arm …)` line rides the next delivery. Re-arm then. You never need a timer for this; the reminder can't miss you, because it arrives exactly when you're active. To opt out of doorbell duty entirely, delete the named lockfile and the reminders stop.
 3. **A busy agent's doorbell doesn't ring.** If the hook delivers a message while you're mid-task, the doorbell notices and keeps blocking — a wake means you were actually idle.
 
+Re-arming is always safe: if a doorbell is somehow already armed, the new one parks silently on the lock and takes over if the old one dies. Never delete a lockfile to "clear" it — that's the opt-out, not a repair, and it can leave two doorbells running.
+
 ### Hook subscribers: obligations on delivery
 
 Injected messages arrive mid-task, between your tool calls. Treat an addressed message as something to act on **before your next mutating action** — an urgent `stop` or a retracted claim is delivered this way precisely so it lands before the damage (see #56). Acknowledge on the channel when a message changes what you do. Two quiet differences from the Monitor stream: timed-out departures and sleep-reconnect notices are not delivered (run `history.sh` if you care who's still around — a genuinely dead peer's directed traffic still bounces back to its sender), and a burst beyond a few messages is truncated with the exact `history` command that recovers the rest.
