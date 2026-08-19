@@ -36,8 +36,16 @@ func doorbellPath(root, slug, name string) string {
 }
 
 // lockDoorbell claims the doorbell for this process, returning the open file
-// whose flock must be held for the process lifetime, or nil when another
-// process already holds it.
+// whose flock must be held for the process lifetime, or nil if the lockfile
+// itself is unusable.
+//
+// It BLOCKS while another process holds the lock rather than refusing (#61).
+// Refusing made re-arming unsafe in both directions: a duplicate arm exited
+// immediately, and an exit is the wake mechanism, so "re-arm on any exit" fed
+// itself a wake loop; meanwhile an abandoned lockfile made the hook's "re-arm
+// it now" nag impossible to obey. Blocking makes a duplicate arm cost nothing
+// but a parked process that takes over if the incumbent dies, so re-arming is
+// always both safe and effective.
 func lockDoorbell(root, slug, name string) *os.File {
 	if os.MkdirAll(doorbellDir(root), 0755) != nil {
 		return nil
@@ -46,11 +54,17 @@ func lockDoorbell(root, slug, name string) *os.File {
 	if err != nil {
 		return nil
 	}
-	if syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB) != nil {
-		_ = f.Close()
-		return nil
+	for {
+		err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX)
+		if err == syscall.EINTR {
+			continue // a signal landed mid-block; the handler owns the exit
+		}
+		if err != nil {
+			_ = f.Close()
+			return nil
+		}
+		return f
 	}
-	return f
 }
 
 // doorbellState reports whether a doorbell lockfile exists and whether a live
@@ -78,20 +92,12 @@ func cmdWaitSignal(slug, name string) {
 		fmt.Fprintf(os.Stderr, "agent-chat: no such channel: %s (run join first)\n", slug)
 		os.Exit(1)
 	}
-	lock := lockDoorbell(channelRoot(), slug, name)
-	if lock == nil {
-		// Another doorbell is already armed for this peer — say so and exit 0.
-		// The wake this exit causes tells the agent NOT to arm a duplicate.
-		fmt.Printf("(agent-chat: a doorbell for %q on %q is already armed — nothing to do, do not re-arm)\n", name, slug)
-		return
-	}
-	defer func() { _ = lock.Close() }()
-
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// A signal here is NOT a departure: the session is still alive and the
-	// hook still delivers. Exit silently; SessionEnd owns the real goodbye.
+	// Armed before the lock, which blocks: a parked duplicate must still die on
+	// signal. A signal here is NOT a departure — the session is still alive and
+	// the hook still delivers. Exit silently; SessionEnd owns the real goodbye.
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 	go func() {
@@ -99,6 +105,13 @@ func cmdWaitSignal(slug, name string) {
 		cancel()
 		os.Exit(0)
 	}()
+
+	lock := lockDoorbell(channelRoot(), slug, name)
+	if lock == nil {
+		fmt.Fprintf(os.Stderr, "agent-chat: cannot open doorbell lockfile %s\n", doorbellPath(channelRoot(), slug, name))
+		os.Exit(1)
+	}
+	defer func() { _ = lock.Close() }()
 
 	// The doorbell carries presence while the agent idles — the fix for
 	// idle-but-open sessions being reaped (observed live in #60's testing).

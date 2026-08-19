@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -94,13 +95,28 @@ func TestDoorbellStateAndNag(t *testing.T) {
 		t.Fatalf("live doorbell must not nag: %q", out.String())
 	}
 
-	// A second doorbell for the same peer is refused while one is held.
-	if dup := lockDoorbell(root, "test", "me"); dup != nil {
-		t.Fatal("duplicate doorbell should be refused while one is armed")
+	// A second doorbell for the same peer parks rather than exiting (#61), then
+	// takes over the moment the incumbent lets go.
+	dup := make(chan *os.File, 1)
+	go func() { dup <- lockDoorbell(root, "test", "me") }()
+	select {
+	case <-dup:
+		t.Fatal("duplicate doorbell returned while one was armed; it must block")
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	_ = lock.Close()
+	select {
+	case f := <-dup:
+		if f == nil {
+			t.Fatal("parked doorbell failed to take over the released lock")
+		}
+		_ = f.Close()
+	case <-time.After(2 * time.Second):
+		t.Fatal("parked doorbell never took over the released lock")
 	}
 
 	// Dead: lockfile exists, no holder → nag names the re-arm and the opt-out.
-	_ = lock.Close()
 	nagDeadDoorbell(&out, root, m)
 	if !strings.Contains(out.String(), "--signal") || !strings.Contains(out.String(), "doorbells") {
 		t.Fatalf("dead doorbell must nag with re-arm command and lockfile path, got: %q", out.String())
