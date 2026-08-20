@@ -16,6 +16,9 @@ SLUG="smoke-$$"
 WORKER="smoke-worker"
 PEER="host-tester"
 SCRATCH="$(mktemp -d -t agent-chat-smoke.XXXXXX)"
+# Pinned via --container below rather than mirroring docker-worker.sh's naming
+# scheme: the two drifted, cleanup rm'd a name that never existed, and every
+# run leaked a live worker.
 CONTAINER="agent-chat-worker-$SLUG"
 LOG="$SCRATCH/$SLUG/log"
 HOST_BIN="cmd/agent-chat/agent-chat"
@@ -55,6 +58,7 @@ wait_for() {
 
 say "launch worker container on throwaway channel '$SLUG'"
 bin/docker-worker.sh "$SLUG" --name "$WORKER" --root "$SCRATCH" --image "$IMAGE" \
+  --container "$CONTAINER" \
   || { fail "launcher failed"; exit 1; }
 
 # Readiness = the worker's announcement broadcast, NOT the join record. join.sh
