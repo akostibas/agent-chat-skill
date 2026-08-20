@@ -50,6 +50,9 @@ delivery are unchanged — but see **Breaking** if you scripted around them.
 - Subcommand arguments parse via `flag.FlagSet` instead of six hand-rolled
   scanners, keeping the accept-flags-in-any-order behavior the shims rely on.
 - Container workers register the delivery hook at boot.
+- `bin/docker-worker-test.sh` no longer leaks a live worker container on
+  every run (its cleanup targeted a container name that never existed), and
+  its host peer joins before sending so the worker's directed reply resolves.
 
 ## v1.6.1
 
