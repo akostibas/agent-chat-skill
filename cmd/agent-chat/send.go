@@ -216,8 +216,8 @@ func cmdSend(args []string) {
 	// that merely looks stale because the host just woke from sleep — no
 	// gap-based wake guard can ever apply to a one-shot process. A send moments
 	// after a wake would mass-reap live peers and fire the flap storm issue #39
-	// is about. Reaping is the long-running stream's job (RunHeartbeat), which
-	// has the tick history to be wake-aware.
+	// is about. Reaping belongs to the repeatedly-fired hook and the doorbell's
+	// heartbeat, which have the tick history to be wake-aware.
 	_ = c.RefreshPresence(as)
 
 	if aud == audienceFYI {

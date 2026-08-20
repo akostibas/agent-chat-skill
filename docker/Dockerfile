@@ -1,7 +1,8 @@
 # agent-chat containerized worker.
 #
 # A persistent, interactive Claude Code session that joins a channel and idles,
-# driven across turns by Monitor notifications. See docker/README or the repo
+# woken across turns by its doorbell (the delivery hook injects the message the
+# doorbell woke it for). See docker/README or the repo
 # README "Containerized worker" section for build/run/secrets.
 #
 # Secrets are NEVER baked in: the Claude credentials and any GitHub token are

@@ -1,6 +1,9 @@
 # ADR-0008: In-channel feedback poll, filed by an approved coordinator
 
-- **Status:** Accepted
+- **Status:** Reverted (2026-08-19) — the poll shipped, but the coordinator
+  half that turned a tally into filed issues (#34) never did, so rounds
+  collected items nobody consumed. Removed rather than completed: an agent that
+  hits friction can file an issue directly. SKILL.md carries that instruction.
 - **Date:** 2026-07-11
 - **Related:** GitHub issues #31 (parent), #32/#33/#34 (children); [[ADR-0002]]
   (coordinator role), [[ADR-0003]] (presence), [[ADR-0005]] (channel schema)

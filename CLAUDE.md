@@ -10,11 +10,11 @@ skill; the shell files in `skill/` are thin shims that exec it.
   presence, mention resolution, and the byte-offset cursor. A **supported,
   SemVer-governed** Go package (`github.com/akostibas/agent-chat-skill/channel`)
   that external Go peers import; the CLI is a thin layer over it. See ADR-0005.
-- `cmd/agent-chat/` — the CLI (`join`/`send`/`history`/`stream`) over the
+- `cmd/agent-chat/` — the CLI (`join`/`send`/`history`/`wait`/`hook`) over the
   package, plus CLI-only concerns (arg parsing, git cwd/branch, channel sweep,
   update nudge, output formatting).
 - `skill/` — the skill itself: `SKILL.md` plus the `join.sh`/`send.sh`/
-  `history.sh`/`stream.sh` shims that exec the binary.
+  `history.sh`/`wait.sh` shims that exec the binary.
 - `bin/` — workflow scripts (`smoke-test.sh`, `release.sh`).
 - `Makefile` — `build`, `install` (copies `skill/` + the built binary to
   `~/.claude/skills/agent-chat/`), `unit` (`go test -race ./...`), `test`
@@ -31,7 +31,7 @@ feature work.
 
 - `make test` (or `bin/smoke-test.sh`) — installs the skill into a throwaway
   `HOME`, then drives `join.sh`/`send.sh`/`history.sh` end-to-end against a
-  scratch channel. Doesn't touch Monitor (that's a Claude Code primitive).
+  scratch channel.
   No network, no real `~/.claude/` mutation.
 
 ## Versioning & releases
@@ -42,7 +42,7 @@ minor.
 - **patch** — bug fixes, docs, internal refactors (no behavior change).
 - **minor** — new backward-compatible flags or scripts.
 - **major** — breaking changes to script names/flags, log line format, the
-  on-disk channel layout, or the `Monitor` invocation contract.
+  on-disk channel layout, or the delivery-hook contract.
 
 Before cutting a release, add a `## vX.Y.Z` section to `CHANGELOG.md` with a
 bullet list of new features / bug fixes — `bin/release.sh` uses that section

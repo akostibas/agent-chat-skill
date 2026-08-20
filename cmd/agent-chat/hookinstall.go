@@ -29,16 +29,10 @@ const hookCmdMarker = `exec "$BIN" hook`
 // an uninstalled or half-removed skill degrades to a silent no-op instead of a
 // console error on every tool call.
 func cmdHookInstall(args []string) {
-	path := ""
-	for i := 0; i < len(args); i++ {
-		switch {
-		case args[i] == "--settings" && i+1 < len(args):
-			path = args[i+1]
-			i++
-		case strings.HasPrefix(args[i], "--settings="):
-			path = strings.TrimPrefix(args[i], "--settings=")
-		}
-	}
+	fs := newFlagSet("hook install", "[--settings <path>]")
+	settingsPath := fs.String("settings", "", "settings file to merge into (default ~/.claude/settings.json)")
+	wantPositional(fs, parse(fs, args), 0)
+	path := *settingsPath
 	if path == "" {
 		home, err := os.UserHomeDir()
 		if err != nil {

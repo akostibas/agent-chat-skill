@@ -146,7 +146,7 @@ spawn-fleet: fleet '$FLEET_ID' is up — ${#launched[@]}/$COUNT worker(s) launch
 
   Join the channel as coordinator (same ephemeral root the workers use):
     AGENT_CHAT_ROOT="$ROOT" "$join_sh" "$SLUG" --as coordinator
-  then make the Monitor call it prints. Workers announce themselves as they come
+  then arm the doorbell it prints. Workers announce themselves as they come
   up; dispatch each a task by @name and tell it which branch to push.
 
   Watch a worker:   docker logs -f ${launched[0]}

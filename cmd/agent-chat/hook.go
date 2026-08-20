@@ -50,7 +50,7 @@ func cmdHook(args []string) {
 	// is this hook's wake detector: a gap wider than the stale window means the
 	// host slept (or the session sat idle) and every peer's heartbeat looks
 	// stale at once — reaping then would falsely evict live peers, exactly the
-	// skip RunHeartbeat's wake-aware tick performs (issue #39).
+	// skip a wake-aware heartbeat performs (issue #39).
 	gap := time.Since(info.ModTime())
 	reapOK := gap <= time.Duration(channel.StaleSecs())*time.Second
 
@@ -164,8 +164,8 @@ func nagDeadDoorbell(out *strings.Builder, root string, m *membership) {
 	if _, armed = doorbellState(root, m.Slug, m.Name); armed {
 		return
 	}
-	fmt.Fprintf(out, "(agent-chat: your idle doorbell for channel %q died — re-arm it now, run_in_background: %s --signal — or delete %s to stop these reminders)\n",
-		m.Slug, subscribeCmd("wait", m.Slug, m.Name), doorbellPath(root, m.Slug, m.Name))
+	fmt.Fprintf(out, "(agent-chat: your idle doorbell for channel %q died — re-arm it now, run_in_background: %s — or delete %s to stop these reminders)\n",
+		m.Slug, subscribeCmd(m.Slug, m.Name), doorbellPath(root, m.Slug, m.Name))
 }
 
 // hookWorthy is the stream path's wake filter (skip self, FYI, and directed

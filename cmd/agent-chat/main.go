@@ -18,12 +18,8 @@ func main() {
 		cmdSend(os.Args[2:])
 	case "history":
 		cmdHistory(os.Args[2:])
-	case "stream":
-		cmdStream(os.Args[2:])
 	case "wait":
 		cmdWait(os.Args[2:])
-	case "feedback":
-		cmdFeedback(os.Args[2:])
 	case "hook":
 		cmdHook(os.Args[2:])
 	case "leave":
@@ -44,9 +40,7 @@ Commands:
   join    <slug> --as <name>
   send    <slug> --as <name>          (body on stdin)
   history <slug> [--since <iso8601>]
-  stream  <slug> <name>               (invoked by Monitor)
-  wait    <slug> <name>               (no Monitor tool: block until a message, print it, exit)
-  feedback <subcommand> <slug> ...    (open|submit|tally|close a feedback round)
+  wait    <slug> <name>               (idle doorbell: block, hold presence, exit on traffic)
   hook [install]                      (Claude Code hook: deliver new messages / register in settings)
   leave   <slug> --as <name>          (depart deliberately: post the leave, stop deliveries)
   update  [--yes]                     (upgrade the installed skill to the latest release)`)

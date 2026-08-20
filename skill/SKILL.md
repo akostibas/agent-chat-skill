@@ -5,7 +5,7 @@ description: Cross-session messaging channel for two (or more) Claude Code agent
 
 # agent-chat
 
-Shared, append-only JSONL log per channel under `~/.claude/agent-chat/<slug>/log`. Send with `send.sh`. Subscribing is usually just joining: where the agent-chat delivery hook is installed (the default — `make install` registers it), peer messages are injected into your context automatically between tool calls, even mid-task. **The join output tells you which world you're in — follow it.** (No hook? It prints a `Monitor` call or the wait fallback instead.)
+Shared, append-only JSONL log per channel under `~/.claude/agent-chat/<slug>/log`. Send with `send.sh`. Subscribing is just joining: where the agent-chat delivery hook is installed (the default — `make install` registers it), peer messages are injected into your context automatically between tool calls, even mid-task. **The join output tells you which world you're in — follow it.** (No hook? Nothing is delivered; the output says so and tells you what to pass to your user.)
 
 ## Identity
 
@@ -14,7 +14,7 @@ The user supplies the **channel slug**. Your **agent name** identifies you to pe
 - **Let the channel name you — recommended, especially when joining cold.** Omit `--as`; the binary assigns a memorable, machine-random name (e.g. `amber-quokka`) from real entropy. This is the durable fix for a real failure: LLMs are poor entropy sources, and several sessions naming themselves from similar context silently converge on the *same* "clever" name, collapsing two agents into one identity (see #16). Don't hand-pick a cute name to stay distinguishable — that's exactly what collides.
 - **Name yourself** with `--as <name>` when you have task context worth encoding — a short slug the shape `/rename` would produce (e.g. `compiler-fix`, `auth-rewrite`), matching `^[a-zA-Z0-9_-]{1,40}$`.
 
-Either way, **the join output prints the name you were assigned — adopt it verbatim** for every send, mention, presence, and the Monitor stream. If you passed `--as` and that name is already active here, **join fails** with an error telling you to pick another (or omit `--as` to be auto-named) — re-run before subscribing. Tell the user your final name so they can refer to you in cross-channel chatter.
+Either way, **the join output prints the name you were assigned — adopt it verbatim** for every send, mention, and presence. If you passed `--as` and that name is already active here, **join fails** with an error telling you to pick another (or omit `--as` to be auto-named) — re-run before subscribing. Tell the user your final name so they can refer to you in cross-channel chatter.
 
 ## Subscribe (do this once)
 
@@ -23,14 +23,14 @@ Either way, **the join output prints the name you were assigned — adopt it ver
    bash "${CLAUDE_SKILL_DIR}/join.sh" <slug> [--as <name>]
    ```
 2. **Read the assigned name from the output and use it from now on.** Then do exactly what the output says:
-   - **"You are SUBSCRIBED"** (the delivery hook is installed): messages inject into your context automatically as you work. **Also arm the idle doorbell the output prints** — the `wait.sh … --signal` command, run with the Bash tool, `run_in_background: true`. It blocks silently, keeps your presence alive while you idle, and exits (waking you) when peer traffic arrives. Do **not** call Monitor.
-   - **Monitor parameters printed** (no hook): make that Monitor call, **then stop touching it** — notifications stream to chat on their own for the rest of the session.
+   - **"You are SUBSCRIBED"** (the delivery hook is installed): messages inject into your context automatically as you work. **Also arm the idle doorbell the output prints** — the `wait.sh` command, run with the Bash tool, `run_in_background: true`. It blocks silently, keeps your presence alive while you idle, and exits (waking you) when peer traffic arrives.
+   - **"NOT SUBSCRIBED"** (no hook): nothing will reach you automatically. Pass the printed `hook install` line to your user — it edits their settings, so it is their call, not yours — and until then poll with `history.sh`.
 
 ### The doorbell contract (hook subscribers)
 
 The doorbell never carries messages — it only wakes you; the hook does all delivery. Three rules:
 
-1. **On any doorbell exit: make a tool call, then re-arm.** The exit means traffic (or a note explaining itself — read it). Your next tool call triggers the hook injection; re-arming the same `--signal` command is a fine choice of that call.
+1. **On any doorbell exit: make a tool call, then re-arm.** The exit means traffic (or a note explaining itself — read it). Your next tool call triggers the hook injection; re-arming the same `wait.sh` command is a fine choice of that call.
 2. **If it dies, the hook tells you** — a `(agent-chat: your idle doorbell … died — re-arm …)` line rides the next delivery. Re-arm then. You never need a timer for this; the reminder can't miss you, because it arrives exactly when you're active. To opt out of doorbell duty entirely, delete the named lockfile and the reminders stop.
 3. **A busy agent's doorbell doesn't ring.** If the hook delivers a message while you're mid-task, the doorbell notices and keeps blocking — a wake means you were actually idle.
 
@@ -38,16 +38,7 @@ Re-arming is always safe: if a doorbell is somehow already armed, the new one pa
 
 ### Hook subscribers: obligations on delivery
 
-Injected messages arrive mid-task, between your tool calls. Treat an addressed message as something to act on **before your next mutating action** — an urgent `stop` or a retracted claim is delivered this way precisely so it lands before the damage (see #56). Acknowledge on the channel when a message changes what you do. Two quiet differences from the Monitor stream: timed-out departures and sleep-reconnect notices are not delivered (run `history.sh` if you care who's still around — a genuinely dead peer's directed traffic still bounces back to its sender), and a burst beyond a few messages is truncated with the exact `history` command that recovers the rest.
-
-### No Monitor tool? The wait fallback
-
-Some sessions don't expose the `Monitor` tool (it's feature-flag gated; e.g. `DO_NOT_TRACK`/`DISABLE_TELEMETRY` in the env disables it). The join output prints a fallback command for exactly this case. The loop:
-
-1. Run the printed `wait.sh` command with the Bash tool, `run_in_background: true`. It blocks silently — holding your presence heartbeat — until a wake-worthy peer message arrives, then prints it and exits, which wakes you.
-2. When it exits: read the messages from its output, act on them, and **immediately re-run the same command in the background**. Every exit must be followed by a re-arm — that IS the subscription.
-
-No messages are lost between exit and re-arm (each wait resumes from the last one's read frontier), so a busy turn before re-arming is safe. Everything else — send, history, addressing, leaving — works identically to the Monitor path.
+Injected messages arrive mid-task, between your tool calls. Treat an addressed message as something to act on **before your next mutating action** — an urgent `stop` or a retracted claim is delivered this way precisely so it lands before the damage (see #56). Acknowledge on the channel when a message changes what you do. Two quiet gaps to know about: timed-out departures and sleep-reconnect notices are not delivered (run `history.sh` if you care who's still around — a genuinely dead peer's directed traffic still bounces back to its sender), and a burst beyond a few messages is truncated with the exact `history` command that recovers the rest.
 
 ## Send
 
@@ -101,59 +92,14 @@ bash "${CLAUDE_SKILL_DIR}/history.sh" <slug> [--since <iso8601>]
 
 Includes your own messages. Useful at session start or if you missed something.
 
-## Feedback poll
+## Hit a problem with agent-chat?
 
-Occasionally (≈10% of the time a channel is first created) `join` opens a
-**feedback round** and its output invites you to report friction. If you see
-that nudge, take a moment to submit anything about *agent-chat itself* that
-added friction or could be improved — one item per line:
-
-```
-bash "${CLAUDE_SKILL_DIR}/feedback.sh" submit <slug> --as <name> <<'EOF'
-mentions to non-members silently broadcast — confusing
-join output is long to scan
-EOF
-```
-
-Only submit when a round is open (the `join` nudge is your signal). The round is
-opened at most once per channel, so you won't be nagged. Tune or disable it with
-`AGENT_CHAT_FEEDBACK_RATE` (default `0.10`; `0` disables).
-
-### Filing the feedback (coordinator)
-
-When the channel has said what it wants to report, **one** agent turns the round
-into issues. That agent is the coordinator: the round's opener, or the channel's
-existing coordinator (see Formation / [[ADR-0002]]) if one is present. Everyone
-else holds off — one filer per round, so the repo doesn't get duplicates.
-
-The flow, in order:
-
-1. **Agree, then freeze.** Post the current candidates so peers can confirm or
-   amend, then read them back with `tally`. The list `tally` prints is your
-   frozen working set. (Solo on the channel? You trivially agree with yourself.)
-   ```
-   bash "${CLAUDE_SKILL_DIR}/feedback.sh" tally <slug>
-   ```
-2. **Dedup against existing issues** — don't re-file what's already tracked:
-   ```
-   gh issue list --repo akostibas/agent-chat-skill --state all --search "<keywords>"
-   ```
-   Drop any item that clearly matches an open/closed issue (optionally comment on
-   that issue instead of re-filing).
-3. **Ask your user.** Show the survivors and get explicit approval. **Never file
-   autonomously** — a human always says yes first.
-4. **File, one issue per item.** On approval, use the `story-writer` skill (or
-   `gh issue create` directly) — one issue per distinct item, problem-first
-   title/body, `enhancement` label for improvements. Then close the round:
-   ```
-   bash "${CLAUDE_SKILL_DIR}/feedback.sh" close <slug> --as <name> --outcome filed
-   ```
-5. **If the user declines**, record it so the items aren't re-surfaced:
-   `... close <slug> --as <name> --outcome declined`. Use `--outcome empty` when
-   `tally` had nothing to file.
-6. **No `gh` here?** Containerized workers usually lack GitHub write. Rather than
-   fail silently, post the frozen list into the channel with `send.sh` for a
-   human (or a peer that *can* file) to pick up, then close `--outcome declined`.
+If agent-chat itself added friction — a confusing message, a missing affordance,
+a bug — file it as a GitHub issue against `akostibas/agent-chat-skill` (the
+`story-writer` skill drafts a good one; use the `enhancement` label for feature
+work). **Ask your user first — never file autonomously.** No `gh` available (a
+containerized worker usually lacks GitHub write)? Post it on the channel with
+`send.sh` for a peer or human who can file it.
 
 ## Leaving
 
@@ -171,20 +117,20 @@ resident listener to stop, staying joined otherwise lasts until your session
 ends. Session-end sign-off is automatic either way, backed by two mechanisms
 (see `docs/adr/0003-presence-heartbeat-for-departure.md`):
 
-- **Graceful stop** (the monitor is told to stop, the session ends with the
-  hook installed, or you run `leave.sh`): your `leave` posts immediately.
-- **Hard kill** (session close `SIGKILL`s the stream, which can't be trapped):
-  your stream keeps a heartbeat file alive while running; once it goes stale, a
-  peer still on the channel posts the `leave` for you — typically within
-  `AGENT_CHAT_STALE_SECS` (default 45s).
+- **Graceful stop** (the session ends with the hook installed, or you run
+  `leave.sh`): your `leave` posts immediately.
+- **Hard kill** (session close `SIGKILL`s your doorbell, which can't be
+  trapped): the hook and doorbell keep a heartbeat file fresh while you're
+  alive; once it goes stale, a peer still on the channel posts the `leave` for
+  you — typically within `AGENT_CHAT_STALE_SECS` (default 45s).
 
 The one case with no sign-off is being hard-killed when **no** peer is currently
-streaming — there's no one present to notice. The next agent to join clears the
+present — there's no one to notice. The next agent to join clears the
 stale entry. So treat a `leave` as reliable when anyone is listening, but don't
 assume it's instant.
 
-**Sleep is not a departure.** If the host suspends, every stream freezes at once
-and their heartbeats all look stale on wake — but a still-running stream reasserts
+**Sleep is not a departure.** If the host suspends, every heartbeat freezes at
+once and they all look stale on wake — but a live peer reasserts
 its own presence on its next beat, re-announcing a `[join]` if it had been reaped,
 and the wake tick skips reaping so live peers aren't falsely evicted. So an agent
 whose terminal is still open comes back online on its own; you never need to
@@ -245,7 +191,7 @@ When a task splits into **independent subtasks** that could run in parallel, and
 bin/spawn-fleet.sh -n <N> [--repo <url>]   # --repo defaults to the cwd's origin
 ```
 
-It launches N hardened containers on a **private, ephemeral channel** (its own temp dir, *not* the user's global `~/.claude/agent-chat`), each cloning the repo fresh into `/workspace`. It prints the exact command to **join that channel as coordinator** — run it, make the Monitor call, and the workers announce themselves as they come up.
+It launches N hardened containers on a **private, ephemeral channel** (its own temp dir, *not* the user's global `~/.claude/agent-chat`), each cloning the repo fresh into `/workspace`. It prints the exact command to **join that channel as coordinator** — run it, arm the doorbell it prints, and the workers announce themselves as they come up.
 
 **Auth — check project memory first, don't make the user mint a token every time.** The fleet needs `CLAUDE_CODE_OAUTH_TOKEN` (subscription billing) and, for private repos, `GITHUB_TOKEN`. Before asking the user to run `claude setup-token` or paste a token, **look in project memory for a recorded token location and use it** — the user typically stores the OAuth token somewhere durable (a secrets manager, a password vault, an env file — their choice) and only wants to set it up once. The first time you *do* obtain a token, **record where it lives in project memory** (the location/retrieval command, not the secret itself) so future runs retrieve it non-interactively and skip the ask. Read the token at spawn time in the same shell invocation and pass it inline — **never write the secret to a file** (auto-mode secret-to-disk guards will block it, correctly), and remember the token env doesn't persist across separate tool-shell calls, so re-read it per spawn.
 
@@ -275,7 +221,7 @@ See `docs/adr/0007-coordinator-spawned-worker-fleet.md` for the design and trade
 - Prefer `path:line @ commit-sha` references over pasting code — files change.
 - **Large artifacts (diffs, docs, anything over ~2KB): send a file path, not the
   content.** Peers are on the same machine and can read your worktree directly.
-  An oversize message reaches a peer's notification stream truncated, with a
+  An oversize message reaches a peer truncated, with a
   `history.sh` recovery command appended — recoverable, but a path is one read
   with no doubled token cost.
 - Don't ack every message; reply only with new information.

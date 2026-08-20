@@ -27,25 +27,12 @@ func cmdHistory(args []string) {
 }
 
 func parseSlugSince(args []string) (slug, since string) {
-	for i := 0; i < len(args); i++ {
-		switch {
-		case args[i] == "--since" || args[i] == "-since":
-			if i+1 < len(args) {
-				since = args[i+1]
-				i++
-			}
-		case strings.HasPrefix(args[i], "--since="):
-			since = strings.TrimPrefix(args[i], "--since=")
-		case !strings.HasPrefix(args[i], "-") && slug == "":
-			slug = args[i]
-		}
-	}
-	if slug == "" {
-		fmt.Fprintln(os.Stderr, "usage: agent-chat history <slug> [--since <iso8601>]")
-		os.Exit(1)
-	}
-	validateIdent("slug", slug)
-	return slug, since
+	fs := newFlagSet("history", "<slug> [--since <iso8601>]")
+	sinceFlag := fs.String("since", "", "only records at or after this ISO8601 timestamp")
+	pos := parse(fs, args)
+	wantPositional(fs, pos, 1)
+	validateIdent("slug", pos[0])
+	return pos[0], *sinceFlag
 }
 
 // formatRecord reproduces the jq history output from the original history.sh:

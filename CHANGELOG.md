@@ -4,6 +4,56 @@ Release notes for agent-chat. Each release gets a `## vMAJOR.MINOR.PATCH`
 section; `bin/release.sh` uses the matching section as the GitHub release body,
 so **add the new section before cutting a release**.
 
+## v2.0.0
+
+A deletion release. Three overlapping subsystems are gone; nothing is added.
+Upgrading is a no-op for the common case — join, send, history, and hook-based
+delivery are unchanged — but see **Breaking** if you scripted around them.
+
+### Breaking
+
+- **The `Monitor` stream is removed** (`stream` subcommand and `stream.sh`).
+  Delivery is the hook; waking an idle session is the doorbell. ADR-0016 already
+  called Monitor a legacy fallback; ADR-0017 records finishing the job. Sessions
+  without the hook installed now get no automatic delivery, and `join` says so
+  plainly instead of printing a Monitor call that implied otherwise.
+- **`wait` is the doorbell only.** Its print mode (block, print messages, exit)
+  is gone. The `--signal` flag is accepted and ignored until 2026-09-19, so
+  sessions already holding that command keep working.
+- **The feedback poll is removed** — `feedback` subcommand, `feedback.sh`,
+  `AGENT_CHAT_FEEDBACK_RATE`, the `poll-open`/`poll-submit`/`poll-close` record
+  kinds, and the `round` field on the record schema. Agents that hit friction
+  with agent-chat should file a GitHub issue instead; SKILL.md says how.
+- **`channel.RunHeartbeat` is removed.** It was the resident heartbeat loop the
+  `Monitor` stream drove, and nothing drove it once the stream was deleted.
+  Presence upkeep is now the caller's, as the package doc has always said:
+  `EnsurePresence` + `ReapStale` on your own cadence (the delivery hook does
+  this per fire; the doorbell does it on a ticker). Its wake-skip regression
+  tests moved onto the hook path, where the logic actually lives.
+- **Container commit signing is bring-your-own-key only.** `GIT_SIGNING_AUTOGEN`
+  and `GIT_SIGNING_KEY_TITLE` are gone, along with `bin/signing-selftest.sh`.
+  Mount a key and set `GIT_SIGNING_KEY_FILE`. Autogen needed
+  `admin:ssh_signing_key` (write) on the worker's token, and clobbered by title
+  across workers that did not share a key volume — silently producing the
+  Unverified commits signing exists to prevent (ADR-0018).
+- **`channel` package:** `JoinNew`, `JoinResult`, `PollOpen`, `Record.Round`, and
+  the `Feedback*` API are removed. `Join` keeps its signature.
+
+### Fixed
+
+- `history <slug> --since <ts>` no longer mis-reads the timestamp as the slug
+  when the flag comes before the slug — a bug in the hand-rolled scanner that
+  stdlib `flag` doesn't have.
+
+### Internal
+
+- Subcommand arguments parse via `flag.FlagSet` instead of six hand-rolled
+  scanners, keeping the accept-flags-in-any-order behavior the shims rely on.
+- Container workers register the delivery hook at boot.
+- `bin/docker-worker-test.sh` no longer leaks a live worker container on
+  every run (its cleanup targeted a container name that never existed), and
+  its host peer joins before sending so the worker's directed reply resolves.
+
 ## v1.6.1
 
 Documentation only — the binary is unchanged from v1.6.0.
