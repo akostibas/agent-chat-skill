@@ -270,82 +270,6 @@ if grep -qF "$fyi_stream" "$watch_out"; then
 fi
 rm -f "$watch_out"
 
-# --- Feedback poll round (open -> submit x2 -> tally -> close) ---
-
-echo "Testing feedback poll round..."
-fslug="smoke-feedback-$$"
-
-# A fresh channel has no open round: submit/tally must refuse.
-if bash "$skill_dir/feedback.sh" tally "$fslug" >/dev/null 2>&1; then
-  echo "FAIL: tally succeeded with no open round." >&2; exit 2
-fi
-
-bash "$skill_dir/feedback.sh" open "$fslug" --as opener >/dev/null
-
-# Two members submit; one item is a near-duplicate (case + spacing) of another.
-bash "$skill_dir/feedback.sh" submit "$fslug" --as opener <<<"mentions are confusing" >/dev/null
-bash "$skill_dir/feedback.sh" submit "$fslug" --as worker <<'EOF' >/dev/null
-join output too long
-Mentions are  Confusing
-EOF
-
-tally_out="$(bash "$skill_dir/feedback.sh" tally "$fslug" 2>&1)"
-if ! grep -qF "mentions are confusing" <<<"$tally_out" || ! grep -qF "join output too long" <<<"$tally_out"; then
-  echo "FAIL: tally missing expected candidate items." >&2
-  echo "----- tally -----" >&2; echo "$tally_out" >&2; exit 2
-fi
-# The duplicate must collapse: exactly 2 numbered candidates.
-tally_count="$(grep -cE '^  [0-9]+\. ' <<<"$tally_out" || true)"
-if [[ "$tally_count" -ne 2 ]]; then
-  echo "FAIL: expected 2 deduped candidates, got $tally_count." >&2
-  echo "----- tally -----" >&2; echo "$tally_out" >&2; exit 2
-fi
-
-# A second open while one is live must be refused.
-if bash "$skill_dir/feedback.sh" open "$fslug" --as opener >/dev/null 2>&1; then
-  echo "FAIL: opened a second round while one was already live." >&2; exit 2
-fi
-
-bash "$skill_dir/feedback.sh" close "$fslug" --as opener --outcome filed >/dev/null
-
-# After close, tally/submit see the round as closed.
-if bash "$skill_dir/feedback.sh" tally "$fslug" >/dev/null 2>&1; then
-  echo "FAIL: tally succeeded after the round was closed." >&2; exit 2
-fi
-
-# --- Feedback poll trigger on join (#33) ---
-
-echo "Testing feedback poll trigger on join..."
-
-# RATE=1 forces the channel-creating join to open a round, and its output must
-# nudge the agent to submit.
-tslug="smoke-trigger-$$"
-trig_out="$(AGENT_CHAT_FEEDBACK_RATE=1 bash "$skill_dir/join.sh" "$tslug" --as first 2>&1)"
-if ! grep -qF "feedback round is open" <<<"$trig_out"; then
-  echo "FAIL: forced-rate join did not nudge about the open round." >&2
-  echo "----- join output -----" >&2; echo "$trig_out" >&2; exit 2
-fi
-if ! bash "$skill_dir/feedback.sh" tally "$tslug" >/dev/null 2>&1; then
-  echo "FAIL: no round open after a forced-rate creating join." >&2; exit 2
-fi
-
-# A second join (also forced) must NOT open a second round: exactly one poll-open.
-AGENT_CHAT_FEEDBACK_RATE=1 bash "$skill_dir/join.sh" "$tslug" --as second >/dev/null 2>&1
-opens="$(bash "$skill_dir/history.sh" "$tslug" 2>&1 | grep -cF "[poll-open]" || true)"
-if [[ "$opens" -ne 1 ]]; then
-  echo "FAIL: expected exactly 1 poll-open after two joins, got $opens." >&2; exit 2
-fi
-
-# RATE=0 disables entirely: a creating join opens no round and gives no nudge.
-zslug="smoke-notrigger-$$"
-noz_out="$(AGENT_CHAT_FEEDBACK_RATE=0 bash "$skill_dir/join.sh" "$zslug" --as solo 2>&1)"
-if grep -qF "feedback round is open" <<<"$noz_out"; then
-  echo "FAIL: rate=0 join still nudged about a round." >&2; exit 2
-fi
-if bash "$skill_dir/feedback.sh" tally "$zslug" >/dev/null 2>&1; then
-  echo "FAIL: rate=0 join opened a round." >&2; exit 2
-fi
-
 # --- Hook-based delivery (#59) ---
 #
 # Runs last on purpose: it writes $HOME/.claude/settings.json, and every
@@ -479,4 +403,4 @@ if [[ -n "$(fire "$lsid")" ]]; then
   echo "FAIL: hook still delivered to a departed session." >&2; exit 2
 fi
 
-echo "PASS: build + relocated/spaced install + join/send/history round-trip + leave-on-teardown + stale-peer reaping + undeliverable bounce + mention resolution + pull-only FYI + feedback poll round + join trigger + hook install/delivery + signal doorbell + deliberate leave."
+echo "PASS: build + relocated/spaced install + join/send/history round-trip + leave-on-teardown + stale-peer reaping + undeliverable bounce + mention resolution + pull-only FYI + hook install/delivery + signal doorbell + deliberate leave."

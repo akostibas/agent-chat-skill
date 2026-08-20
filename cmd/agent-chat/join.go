@@ -33,23 +33,14 @@ func cmdJoin(args []string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	// Feedback poll (#33): roll the die once here. Only a join that *creates* the
-	// channel acts on the result (JoinNew opens the round iff it created the
-	// channel), so passing the request to every join is harmless — a non-creator's
-	// roll is discarded. That keeps the effective rate a true per-channel 10%
-	// (one creator per channel) instead of compounding across joiners.
-	var pollOpen *channel.PollOpen
-	if feedbackRoll(envFloat("AGENT_CHAT_FEEDBACK_RATE", defaultFeedbackRate)) {
-		pollOpen = &channel.PollOpen{RoundID: generateRoundID(), Body: feedbackOpenBody(slug)}
-	}
-	join := func(name string) (channel.JoinResult, error) {
-		return c.JoinNew(ctx, channel.Record{
+	join := func(name string) (string, error) {
+		return c.Join(ctx, channel.Record{
 			Sender: name,
 			Cwd:    agentCwd(),
 			Branch: agentBranch(),
 			Kind:   "join",
 			Body:   "joined channel",
-		}, pollOpen)
+		})
 	}
 
 	// --as is optional. Without it the binary owns the entropy and picks a
@@ -58,20 +49,16 @@ func cmdJoin(args []string) {
 	// active is rejected so the agent re-picks (suffixes confuse humans); a
 	// generated collision just regenerates, since there's no human in the loop.
 	generated := as == ""
-	var res channel.JoinResult
 	if generated {
-		res = claimGeneratedName(join)
-	} else if r, err := join(as); err != nil {
+		as = claimGeneratedName(join)
+	} else if _, err := join(as); err != nil {
 		if errors.Is(err, channel.ErrNameTaken) {
 			fmt.Fprintf(os.Stderr, "agent-chat: name %q is already active on channel %q — pick a different name with --as, or omit --as to be auto-named.\n", as, slug)
 		} else {
 			fmt.Fprintf(os.Stderr, "agent-chat: %v\n", err)
 		}
 		os.Exit(1)
-	} else {
-		res = r
 	}
-	as = res.Name
 
 	// Seed the read frontier at the join point: delivery (hook or wait) starts
 	// from "now", and ADR-0011's bounce logic sees an honest frontier instead
@@ -111,7 +98,6 @@ func cmdJoin(args []string) {
 		fmt.Printf("peer traffic arrives — waking you if you were idle. On ANY wake: make a tool\n")
 		fmt.Printf("call (the hook injects the messages), then re-arm the same command. If it\n")
 		fmt.Printf("ever dies, the hook reminds you to re-arm.\n")
-		printFeedbackNudge(c, slug, as)
 		return
 	}
 
@@ -140,7 +126,6 @@ func cmdJoin(args []string) {
 		fmt.Printf("loop. Mention this to the user; do not edit their settings yourself.\n")
 	}
 
-	printFeedbackNudge(c, slug, as)
 }
 
 // subscribeCmd builds the command an agent runs to subscribe via the given
@@ -183,11 +168,11 @@ func withChannelRoot(streamCmd, root string) string {
 // Generated collisions are rare (~2300 base combinations) and there's no human
 // to re-pick, so we regenerate rather than reject. Bounded so a saturated
 // channel fails loudly instead of spinning forever.
-func claimGeneratedName(join func(string) (channel.JoinResult, error)) channel.JoinResult {
+func claimGeneratedName(join func(string) (string, error)) string {
 	for range 20 {
-		res, err := join(generateName())
+		name, err := join(generateName())
 		if err == nil {
-			return res
+			return name
 		}
 		if !errors.Is(err, channel.ErrNameTaken) {
 			fmt.Fprintf(os.Stderr, "agent-chat: %v\n", err)
@@ -196,37 +181,7 @@ func claimGeneratedName(join func(string) (channel.JoinResult, error)) channel.J
 	}
 	fmt.Fprintln(os.Stderr, "agent-chat: could not find a free auto-generated name after 20 tries")
 	os.Exit(1)
-	return channel.JoinResult{}
-}
-
-// printFeedbackNudge tells the agent to submit feedback when — and only when — a
-// round is open on the channel, whether this join opened it (#33) or an earlier
-// one did and this join inherited it.
-func printFeedbackNudge(c *channel.Channel, slug, as string) {
-	round, err := c.CurrentRound()
-	if err != nil || round == nil || !round.Open {
-		return
-	}
-	fmt.Printf("\nA feedback round is open on this channel. If agent-chat added any friction,\n")
-	fmt.Printf("or you have a process improvement, submit it (one item per line on stdin):\n")
-	fmt.Printf("  %s\n", feedbackSubmitCmd(slug, as))
-}
-
-// feedbackSubmitCmd builds the command an agent runs to submit feedback,
-// preferring the feedback.sh shim next to this binary and propagating a
-// non-default channel root, mirroring how the Monitor stream command is built.
-func feedbackSubmitCmd(slug, as string) string {
-	root := os.Getenv("AGENT_CHAT_ROOT")
-	if d := selfDir(); d != "" {
-		shim := d + "/feedback.sh"
-		if _, err := os.Stat(shim); err == nil {
-			return withChannelRoot(fmt.Sprintf("bash %q submit %q --as %q", shim, slug, as), root)
-		}
-	}
-	if exe, err := os.Executable(); err == nil {
-		return withChannelRoot(fmt.Sprintf("%q feedback submit %q --as %q", exe, slug, as), root)
-	}
-	return fmt.Sprintf("agent-chat feedback submit %q --as %q", slug, as)
+	return ""
 }
 
 // scanSlugAs parses the mixed positional/flag style used by every subcommand:

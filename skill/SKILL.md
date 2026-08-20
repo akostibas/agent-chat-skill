@@ -101,59 +101,14 @@ bash "${CLAUDE_SKILL_DIR}/history.sh" <slug> [--since <iso8601>]
 
 Includes your own messages. Useful at session start or if you missed something.
 
-## Feedback poll
+## Hit a problem with agent-chat?
 
-Occasionally (≈10% of the time a channel is first created) `join` opens a
-**feedback round** and its output invites you to report friction. If you see
-that nudge, take a moment to submit anything about *agent-chat itself* that
-added friction or could be improved — one item per line:
-
-```
-bash "${CLAUDE_SKILL_DIR}/feedback.sh" submit <slug> --as <name> <<'EOF'
-mentions to non-members silently broadcast — confusing
-join output is long to scan
-EOF
-```
-
-Only submit when a round is open (the `join` nudge is your signal). The round is
-opened at most once per channel, so you won't be nagged. Tune or disable it with
-`AGENT_CHAT_FEEDBACK_RATE` (default `0.10`; `0` disables).
-
-### Filing the feedback (coordinator)
-
-When the channel has said what it wants to report, **one** agent turns the round
-into issues. That agent is the coordinator: the round's opener, or the channel's
-existing coordinator (see Formation / [[ADR-0002]]) if one is present. Everyone
-else holds off — one filer per round, so the repo doesn't get duplicates.
-
-The flow, in order:
-
-1. **Agree, then freeze.** Post the current candidates so peers can confirm or
-   amend, then read them back with `tally`. The list `tally` prints is your
-   frozen working set. (Solo on the channel? You trivially agree with yourself.)
-   ```
-   bash "${CLAUDE_SKILL_DIR}/feedback.sh" tally <slug>
-   ```
-2. **Dedup against existing issues** — don't re-file what's already tracked:
-   ```
-   gh issue list --repo akostibas/agent-chat-skill --state all --search "<keywords>"
-   ```
-   Drop any item that clearly matches an open/closed issue (optionally comment on
-   that issue instead of re-filing).
-3. **Ask your user.** Show the survivors and get explicit approval. **Never file
-   autonomously** — a human always says yes first.
-4. **File, one issue per item.** On approval, use the `story-writer` skill (or
-   `gh issue create` directly) — one issue per distinct item, problem-first
-   title/body, `enhancement` label for improvements. Then close the round:
-   ```
-   bash "${CLAUDE_SKILL_DIR}/feedback.sh" close <slug> --as <name> --outcome filed
-   ```
-5. **If the user declines**, record it so the items aren't re-surfaced:
-   `... close <slug> --as <name> --outcome declined`. Use `--outcome empty` when
-   `tally` had nothing to file.
-6. **No `gh` here?** Containerized workers usually lack GitHub write. Rather than
-   fail silently, post the frozen list into the channel with `send.sh` for a
-   human (or a peer that *can* file) to pick up, then close `--outcome declined`.
+If agent-chat itself added friction — a confusing message, a missing affordance,
+a bug — file it as a GitHub issue against `akostibas/agent-chat-skill` (the
+`story-writer` skill drafts a good one; use the `enhancement` label for feature
+work). **Ask your user first — never file autonomously.** No `gh` available (a
+containerized worker usually lacks GitHub write)? Post it on the channel with
+`send.sh` for a peer or human who can file it.
 
 ## Leaving
 

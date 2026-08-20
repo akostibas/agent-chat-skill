@@ -82,10 +82,6 @@ type Record struct {
 	Kind     string   `json:"kind"`
 	Body     string   `json:"body"`
 	Mentions []string `json:"mentions,omitempty"`
-	// Round tags a record with a feedback-poll round id. Set only on the
-	// poll-open/poll-submit/poll-close kinds (see feedback.go); omitted (and thus
-	// invisible in the golden schema) on ordinary join/leave/msg records.
-	Round string `json:"round,omitempty"`
 }
 
 // KindFYI is the record kind for a pull-only note: a message a sender posted
@@ -172,21 +168,6 @@ func (c *Channel) ensureDir() error {
 		return err
 	}
 	return f.Close()
-}
-
-// logEmpty reports whether the channel log has no records yet — the signal that
-// a join is creating the channel. Call it under the channel lock so no
-// concurrent write can change the answer. A zero-byte (or absent) log means no
-// record has been appended.
-func (c *Channel) logEmpty() (bool, error) {
-	info, err := os.Stat(c.logPath())
-	if os.IsNotExist(err) {
-		return true, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	return info.Size() == 0, nil
 }
 
 // acquireLock grabs an exclusive flock on log.lock, retrying until the lock is
