@@ -170,8 +170,8 @@ and secret-free). Two supported strategies:
 ### Signing commits (optional)
 
 If the worker's commits need to be **Verified** on GitHub, give it an SSH
-signing key — there's no GPG/1Password agent in the container. Two ways, plus
-off (the default). The committer email is `GIT_USER_EMAIL`, which must be a
+signing key — there's no GPG/1Password agent in the container. Bring your own
+key; off is the default. The committer email is `GIT_USER_EMAIL`, which must be a
 **verified email on the signing key's GitHub account** or commits show
 Unverified.
 
@@ -186,20 +186,15 @@ Unverified.
     -e GIT_USER_EMAIL=you@example.com  ...
   ```
 
-- **Autogenerate (`GIT_SIGNING_AUTOGEN=1`)** — if no key exists yet, the worker
-  mints an ed25519 key and registers it as an SSH *signing* key on the token's
-  account (idempotent by title via `GIT_SIGNING_KEY_TITLE`), then persists it.
-  Convenience for a **single** worker (or several sharing one key volume — minting
-  is `flock`-guarded). Needs the token to carry `admin:ssh_signing_key` (write).
-  ⚠️ Multiple workers **without** a shared key volume will clobber each other's
-  registration by title and produce Unverified commits — provision a key and use
-  bring-your-own-key instead.
+Leave `GIT_SIGNING_KEY_FILE` unset and signing stays off. Workers do not mint or
+register keys: that needed `admin:ssh_signing_key` (write) on the worker's token
+and clobbered by title across instances, silently producing the Unverified
+commits signing exists to prevent.
 
 ### Verify
 
 ```sh
 make docker-test       # throwaway channel, asserts a full round-trip, tears down
-bin/signing-selftest.sh # verifies the SSH commit-signing setup (host or in-image)
 ```
 
 Crash-survival (a supervisor that relaunches a dead session) is tracked
