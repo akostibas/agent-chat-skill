@@ -61,16 +61,11 @@ func latestReleaseTag(repo string, timeout time.Duration) (string, error) {
 // binary's inode is unlinked rather than truncated — POSIX keeps it readable
 // for this process and any live streams, making self-replacement safe.
 func cmdUpdate(args []string) {
-	assumeYes := false
-	for _, a := range args {
-		switch a {
-		case "--yes", "-y":
-			assumeYes = true
-		default:
-			fmt.Fprintln(os.Stderr, "usage: agent-chat update [--yes]")
-			os.Exit(1)
-		}
-	}
+	fs := newFlagSet("update", "[--yes]")
+	yes := fs.Bool("yes", false, "upgrade without confirming")
+	fs.BoolVar(yes, "y", false, "shorthand for --yes")
+	wantPositional(fs, parse(fs, args), 0)
+	assumeYes := *yes
 
 	for _, t := range []struct{ name, hint string }{
 		{"git", "install git and retry"},

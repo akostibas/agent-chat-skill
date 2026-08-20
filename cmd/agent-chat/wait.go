@@ -91,16 +91,10 @@ func doorbellState(root, slug, name string) (exists, armed bool) {
 // messages, and live sessions still hold that invocation in their context.
 // COMPAT: remove after 2026-09-19
 func cmdWait(args []string) {
-	var pos []string
-	for _, a := range args {
-		if a != "--signal" {
-			pos = append(pos, a)
-		}
-	}
-	if len(pos) != 2 {
-		fmt.Fprintln(os.Stderr, "usage: agent-chat wait <slug> <name>")
-		os.Exit(1)
-	}
+	fs := newFlagSet("wait", "<slug> <name>")
+	fs.Bool("signal", false, "accepted and ignored (this is always signal mode)")
+	pos := parse(fs, args)
+	wantPositional(fs, pos, 2)
 	slug, name := pos[0], pos[1]
 	validateIdent("slug", slug)
 	validateIdent("name", name)

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"regexp"
-	"strings"
 	"time"
 
 	"github.com/akostibas/agent-chat-skill/channel"
@@ -162,56 +161,4 @@ func claimGeneratedName(join func(string) (string, error)) string {
 	fmt.Fprintln(os.Stderr, "agent-chat: could not find a free auto-generated name after 20 tries")
 	os.Exit(1)
 	return ""
-}
-
-// scanSlugAs parses the mixed positional/flag style used by every subcommand:
-//
-//	<slug> --as <name>
-//
-// The slug may appear before or after --as (the shell scripts always put it
-// first, but accepting it anywhere is more robust). It does no validation or
-// required-field enforcement — callers layer that on, since join treats --as as
-// optional while the rest require it.
-func scanSlugAs(args []string) (slug, as string) {
-	for i := 0; i < len(args); i++ {
-		switch {
-		case args[i] == "--as" || args[i] == "-as":
-			if i+1 < len(args) {
-				as = args[i+1]
-				i++
-			}
-		case strings.HasPrefix(args[i], "--as="):
-			as = strings.TrimPrefix(args[i], "--as=")
-		case !strings.HasPrefix(args[i], "-") && slug == "":
-			slug = args[i]
-		}
-	}
-	return slug, as
-}
-
-// parseSlugAs is the strict form for send/history: both slug and --as required.
-func parseSlugAs(cmd string, args []string) (slug, as string) {
-	slug, as = scanSlugAs(args)
-	if slug == "" || as == "" {
-		fmt.Fprintf(os.Stderr, "usage: agent-chat %s <slug> --as <name>\n", cmd)
-		os.Exit(1)
-	}
-	validateIdent("slug", slug)
-	validateIdent("name", as)
-	return slug, as
-}
-
-// parseJoinArgs is join's form: slug required, --as optional. An empty as means
-// "generate one"; cmdJoin fills it in.
-func parseJoinArgs(args []string) (slug, as string) {
-	slug, as = scanSlugAs(args)
-	if slug == "" {
-		fmt.Fprintln(os.Stderr, "usage: agent-chat join <slug> [--as <name>]")
-		os.Exit(1)
-	}
-	validateIdent("slug", slug)
-	if as != "" {
-		validateIdent("name", as)
-	}
-	return slug, as
 }
