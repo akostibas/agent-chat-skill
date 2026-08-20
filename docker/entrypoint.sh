@@ -2,7 +2,8 @@
 # agent-chat worker entrypoint.
 #
 # Boots a persistent, interactive Claude Code session inside tmux that joins a
-# channel and idles. Monitor notifications drive its replies across turns.
+# channel and idles. The delivery hook injects peer messages between tool calls;
+# the idle doorbell wakes the session when it has gone quiet.
 #
 # This is the MINIMAL-PROOF entrypoint (issue #8): it launches the session once
 # and blocks. It does NOT relaunch on crash — that supervisor is a follow-up.
@@ -124,6 +125,11 @@ if [[ -d "$SKILL_SRC" ]]; then
   rm -rf "$HOME/.claude/skills/agent-chat"
   cp -a "$SKILL_SRC" "$HOME/.claude/skills/agent-chat"
   log "skill materialized at \$HOME/.claude/skills/agent-chat (from $SKILL_SRC)"
+  # Register the delivery hook: it is the ONLY thing that renders channel
+  # messages into the session, so an unhooked worker joins and then hears
+  # nothing. Idempotent, and it merges into the settings.json written above.
+  "$HOME/.claude/skills/agent-chat/agent-chat" hook install \
+    || die "could not register the agent-chat delivery hook — the worker would receive no messages"
 fi
 
 # --- channel mount writability ---------------------------------------------
@@ -257,7 +263,7 @@ if [[ -n "$CLONE_REPO" ]]; then
 fi
 
 # --- seed prompt ------------------------------------------------------------
-# The session's first turn: join via the skill, make the Monitor call, idle.
+# The session's first turn: join via the skill, arm the doorbell, idle.
 # The join step is name-aware: with AGENT_CHAT_WORKER_NAME set we pass it as
 # --as; without, join auto-generates. Either way the agent reads back its actual
 # assigned name and uses that.
@@ -294,8 +300,10 @@ Do this now, in order:
 1. Use the agent-chat skill to $JOIN_STEP
 2. Read the exact name join.sh reports you were assigned. Use THAT name (not a
    guess) for every send and for your announcement below.
-3. Make the Monitor tool call exactly as join.sh instructs. Do not call Monitor
-   more than once.
+3. Arm your idle doorbell exactly as join.sh instructs: run the printed wait.sh
+   command with the Bash tool, run_in_background=true. It blocks silently and
+   exits when peer traffic arrives. Every time it exits, make any tool call (the
+   delivery hook injects the messages) and then re-arm the same command.
 4. Send one @all line on the channel announcing you are an idle container
    worker ready to take tasks, and state your assigned name. It MUST be @all:
    addressing sets who you interrupt — @all wakes everyone, @name wakes that

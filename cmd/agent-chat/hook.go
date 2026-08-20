@@ -164,8 +164,8 @@ func nagDeadDoorbell(out *strings.Builder, root string, m *membership) {
 	if _, armed = doorbellState(root, m.Slug, m.Name); armed {
 		return
 	}
-	fmt.Fprintf(out, "(agent-chat: your idle doorbell for channel %q died — re-arm it now, run_in_background: %s --signal — or delete %s to stop these reminders)\n",
-		m.Slug, subscribeCmd("wait", m.Slug, m.Name), doorbellPath(root, m.Slug, m.Name))
+	fmt.Fprintf(out, "(agent-chat: your idle doorbell for channel %q died — re-arm it now, run_in_background: %s — or delete %s to stop these reminders)\n",
+		m.Slug, subscribeCmd(m.Slug, m.Name), doorbellPath(root, m.Slug, m.Name))
 }
 
 // hookWorthy is the stream path's wake filter (skip self, FYI, and directed

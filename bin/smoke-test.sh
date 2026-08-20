@@ -2,10 +2,9 @@
 #
 # smoke-test.sh — end-to-end check of the agent-chat skill.
 #
-# Exercises join, send, history, and stream (via the shell shims, which
+# Exercises join, send, history, and the doorbell (via the shell shims, which
 # delegate to the agent-chat binary) against a throwaway channel under a temp
-# HOME so it can't collide with real chat state. Doesn't touch Monitor — that's
-# a Claude Code primitive, not something we can drive from a shell.
+# HOME so it can't collide with real chat state.
 #
 # Usage:
 #   bin/smoke-test.sh
@@ -35,7 +34,7 @@ go build -o cmd/agent-chat/agent-chat ./cmd/agent-chat/ \
 # Deliberately install OUTSIDE $HOME and under a path containing a space. This
 # makes every assertion below run through a relocated install: it proves the
 # binary and shims self-resolve their own dir from any location, and that a
-# spaced install path doesn't break the printed Monitor command. Channel state
+# spaced install path doesn't break the printed doorbell command. Channel state
 # still lives under $HOME, which the state-separation check below verifies.
 
 tmphome="$(mktemp -d)"
@@ -63,20 +62,13 @@ echo "Joining channel $slug as $name..."
 # Run from a neutral cwd: hookInstalled() also consults the PROJECT's
 # .claude/settings.json at the git root of the joining cwd, and this repo's may
 # legitimately carry the hook — which would flip this join to the subscribed
-# story and break the Monitor assertions below.
+# story and break the not-subscribed assertions below.
 join_out="$(cd "$tmphome" && CLAUDE_CODE_SESSION_ID="smoke-early-$$" bash "$skill_dir/join.sh" "$slug" --as "$name" 2>&1)"
 
-# The Monitor command must reference stream.sh inside THIS install's dir.
-if ! grep -qF "$skill_dir/stream.sh" <<<"$join_out"; then
-  echo "FAIL: join Monitor command did not reference $skill_dir/stream.sh" >&2
-  echo "----- output -----" >&2
-  echo "$join_out" >&2
-  exit 2
-fi
-
-# A hook-less Claude Code session must be nudged toward the hook upgrade.
-if ! grep -q "hook install" <<<"$join_out"; then
-  echo "FAIL: hook-less join did not nudge about 'hook install'." >&2
+# A hook-less Claude Code session gets no delivery at all, and must say so
+# rather than hand out a doorbell that would wake the agent with nothing to read.
+if ! grep -q "NOT SUBSCRIBED" <<<"$join_out" || ! grep -q "hook install" <<<"$join_out"; then
+  echo "FAIL: hook-less join did not report the missing hook and nudge 'hook install'." >&2
   echo "----- output -----" >&2; echo "$join_out" >&2; exit 2
 fi
 
@@ -109,28 +101,13 @@ if find "$tmproot" -name log -type f 2>/dev/null | grep -q .; then
   find "$tmproot" -name log -type f >&2; exit 2
 fi
 
-# --- Leave-on-teardown: stream must emit a "leave" when signalled ---
-
-echo "Testing leave-on-teardown..."
-bash "$skill_dir/stream.sh" "$slug" "$name" >/dev/null 2>&1 &
-stream_pid=$!
-sleep 1
-kill -TERM "$stream_pid"
-wait "$stream_pid" 2>/dev/null || true
-
-leave_out="$(bash "$skill_dir/history.sh" "$slug" 2>&1)"
-if ! grep -qF "left channel" <<<"$leave_out"; then
-  echo "FAIL: stream did not emit a leave event on SIGTERM." >&2
-  echo "----- history -----" >&2; echo "$leave_out" >&2; exit 2
-fi
-
-# --- Stale-peer reaping (via the stream heartbeat, the real reaper) ---
+# --- Stale-peer reaping (via the doorbell heartbeat, the real reaper) ---
 #
-# Reaping is the long-running stream's job, not a one-shot send's: a fresh CLI
+# Reaping is a long-running process's job, not a one-shot send's: a fresh CLI
 # process has no tick history, so it can't tell a genuinely stale peer from one
 # that only looks stale because the host just woke from sleep (issue #39). Drive
-# a short-lived stream with a fast heartbeat so it reaps the planted ghost on an
-# early tick; its several ticks also prove the reap is one-shot.
+# a short-lived doorbell with a fast heartbeat so it reaps the planted ghost on
+# an early tick; its several ticks also prove the reap is one-shot.
 
 echo "Testing stale-peer reaping..."
 presence_dir="$HOME/.claude/agent-chat/$slug/presence"
@@ -141,14 +118,14 @@ stale_ts="$(date -v-10M +%Y%m%d%H%M 2>/dev/null || date -d '10 minutes ago' +%Y%
 touch -t "$stale_ts" "$presence_dir/$ghost"
 
 # Directed message to the ghost that it will never read (it isn't streaming, so
-# it has no read frontier). When the ghost is reaped below, this must bounce back
-# to the sender ($name, who IS present as the reaping stream) — a departed peer's
+# it has no doorbell of its own). When the ghost is reaped below, this must bounce back
+# to the sender ($name, who IS present as the reaping doorbell) — a departed peer's
 # unread directed message fails loudly instead of vanishing (ADR-0011).
 bounce_body="did you get this ghost? $$"
 bash "$skill_dir/send.sh" "$slug" --as "$name" <<<"@$ghost $bounce_body" >/dev/null
 
 AGENT_CHAT_STALE_SECS=30 AGENT_CHAT_HEARTBEAT_SECS=1 \
-  bash "$skill_dir/stream.sh" "$slug" "$name" >/dev/null 2>&1 &
+  bash "$skill_dir/wait.sh" "$slug" "$name" >/dev/null 2>&1 &
 reaper_pid=$!
 sleep 3 # a few heartbeat ticks
 kill -TERM "$reaper_pid" 2>/dev/null || true
@@ -164,7 +141,7 @@ if [[ -e "$presence_dir/$ghost" ]]; then
 fi
 
 # Reaping must be one-shot: exactly one [leave] for the ghost despite several
-# heartbeat ticks over the stream's lifetime.
+# heartbeat ticks over the doorbell's lifetime.
 ghost_leaves_after_reap="$(grep -F "$ghost" <<<"$reap_out" | grep -cF "[leave]" || true)"
 if [[ "$ghost_leaves_after_reap" -ne 1 ]]; then
   echo "FAIL: stale peer reaped $ghost_leaves_after_reap times, expected exactly 1." >&2
@@ -242,38 +219,28 @@ if ! bash "$skill_dir/history.sh" "$mslug" 2>&1 | grep -qF "$fyi_note"; then
   echo "FAIL: FYI note not visible in history (it should be pullable)." >&2; exit 2
 fi
 
-# The stream must NOT emit an FYI, but MUST emit a directed message. A stdout
-# line here is exactly what Monitor turns into a peer wake event, so this is the
-# deterministic proxy for "an FYI wakes no one" — the closest a shell can get to
-# the wake boundary without driving Monitor itself.
-echo "Testing FYI is not a wake event (stream emits directed, skips FYI)..."
+# An FYI must never be a wake event; a directed message must be. The doorbell
+# is the wake primitive (it exits to wake an idle agent), so arm one and watch
+# what it does: still blocked after an FYI, exited after a directed message.
+echo "Testing FYI is not a wake event (doorbell ignores FYI, wakes on directed)..."
 bash "$skill_dir/join.sh" "$mslug" --as watcher >/dev/null
-watch_out="$(mktemp)"
-bash "$skill_dir/stream.sh" "$mslug" watcher >"$watch_out" 2>/dev/null &
+AGENT_CHAT_SIGNAL_GRACE_MS=200 bash "$skill_dir/wait.sh" "$mslug" watcher >/dev/null 2>&1 &
 watch_pid=$!
-sleep 1 # let the stream come up and seed its cursor at the current log end
-fyi_stream="FYISENTINEL-stay-quiet-$$"
-directed_stream="DIRECTEDSENTINEL-wake-watcher-$$"
-bash "$skill_dir/send.sh" "$mslug" --as alice <<<"$fyi_stream" >/dev/null              # no @ → FYI
-bash "$skill_dir/send.sh" "$mslug" --as alice <<<"@watcher $directed_stream" >/dev/null # directed
-sleep 1 # let the stream poll and emit
-kill -TERM "$watch_pid" 2>/dev/null || true
-wait "$watch_pid" 2>/dev/null || true
-
-if ! grep -qF "$directed_stream" "$watch_out"; then
-  echo "FAIL: stream did not emit a directed @watcher message (it should wake)." >&2
-  echo "----- stream stdout -----" >&2; cat "$watch_out" >&2; rm -f "$watch_out"; exit 2
+sleep 1 # let the doorbell arm and seed its cursor at the current log end
+bash "$skill_dir/send.sh" "$mslug" --as alice <<<"FYISENTINEL-stay-quiet-$$" >/dev/null
+sleep 1
+if ! kill -0 "$watch_pid" 2>/dev/null; then
+  echo "FAIL: doorbell exited on an FYI (it must be pull-only, never a wake event)." >&2; exit 2
 fi
-if grep -qF "$fyi_stream" "$watch_out"; then
-  echo "FAIL: stream emitted an FYI (it must be pull-only, never a wake event)." >&2
-  echo "----- stream stdout -----" >&2; cat "$watch_out" >&2; rm -f "$watch_out"; exit 2
+bash "$skill_dir/send.sh" "$mslug" --as alice <<<"@watcher DIRECTEDSENTINEL-$$" >/dev/null
+if ! wait "$watch_pid"; then
+  echo "FAIL: doorbell did not wake on a directed @watcher message." >&2; exit 2
 fi
-rm -f "$watch_out"
 
 # --- Hook-based delivery (#59) ---
 #
 # Runs last on purpose: it writes $HOME/.claude/settings.json, and every
-# assertion above must see the hook-free world (Monitor instructions on join).
+# assertion above must see the hook-free world (the not-subscribed join story).
 
 echo "Testing hook install (idempotent settings.json merge)..."
 hbin="$skill_dir/agent-chat"
@@ -349,7 +316,7 @@ dz_cursor="$HOME/.claude/agent-chat/$hslug/cursors/dozer"
 dz_seed="$(cat "$dz_cursor")"
 
 dbell_out="$(mktemp)"
-AGENT_CHAT_SIGNAL_GRACE_MS=200 bash "$skill_dir/wait.sh" "$hslug" dozer --signal >"$dbell_out" 2>&1 &
+AGENT_CHAT_SIGNAL_GRACE_MS=200 bash "$skill_dir/wait.sh" "$hslug" dozer >"$dbell_out" 2>&1 &
 dbell_pid=$!
 sleep 1
 bash "$skill_dir/send.sh" "$hslug" --as hookpeer <<<"@all KNOCK-$$" >/dev/null
@@ -371,7 +338,7 @@ if ! grep -qF "KNOCK-$$" <<<"$dz_fire"; then
   echo "FAIL: hook did not deliver the doorbell's message." >&2
   echo "$dz_fire" >&2; exit 2
 fi
-if ! grep -q "doorbell" <<<"$dz_fire" || ! grep -q -- "--signal" <<<"$dz_fire"; then
+if ! grep -q "doorbell" <<<"$dz_fire" || ! grep -q "wait" <<<"$dz_fire"; then
   echo "FAIL: hook did not nag about the dead doorbell with a re-arm command." >&2
   echo "$dz_fire" >&2; exit 2
 fi
@@ -403,4 +370,4 @@ if [[ -n "$(fire "$lsid")" ]]; then
   echo "FAIL: hook still delivered to a departed session." >&2; exit 2
 fi
 
-echo "PASS: build + relocated/spaced install + join/send/history round-trip + leave-on-teardown + stale-peer reaping + undeliverable bounce + mention resolution + pull-only FYI + hook install/delivery + signal doorbell + deliberate leave."
+echo "PASS: build + relocated/spaced install + join/send/history round-trip + stale-peer reaping + undeliverable bounce + mention resolution + pull-only FYI + hook install/delivery + signal doorbell + deliberate leave."

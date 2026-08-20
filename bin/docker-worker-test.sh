@@ -52,11 +52,11 @@ bin/docker-worker.sh "$SLUG" --name "$WORKER" --root "$SCRATCH" --image "$IMAGE"
   || { fail "launcher failed"; exit 1; }
 
 # Readiness = the worker's announcement broadcast, NOT the join record. join.sh
-# writes the join record BEFORE the session makes its Monitor call; the seed
+# writes the join record BEFORE the session arms its doorbell; the seed
 # prompt posts the announcement AFTER it. So an announcement proves the worker
 # is actually subscribed — sending on the join record alone races the
 # join->subscribe gap and the task is never delivered.
-say "wait for worker to be ready (join + Monitor subscribe + announce, up to 150s)"
+say "wait for worker to be ready (join + doorbell arm + announce, up to 150s)"
 if wait_for 150 'select(.sender=="'"$WORKER"'" and .kind=="msg")'; then
   echo "OK: worker '$WORKER' announced — joined, subscribed, and ready"
 else
@@ -72,7 +72,7 @@ EOF
 SENT_TS="$(date -u +%Y-%m-%dT%H:%M:%S)"
 echo "sent at $SENT_TS"
 
-say "wait for worker reply (Monitor delivery + a turn, up to 120s)"
+say "wait for worker reply (hook delivery + a turn, up to 120s)"
 if wait_for 120 'select(.sender=="'"$WORKER"'" and .kind=="msg" and (.body|test("ROUNDTRIP-OK")))'; then
   echo "OK: worker replied with ROUNDTRIP-OK"
   echo "--- worker's message ---"

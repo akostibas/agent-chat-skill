@@ -37,7 +37,7 @@ Then add these entries to the `permissions.allow` array in the matching `setting
 "Bash(bash ~/.claude/skills/agent-chat/join.sh:*)",
 "Bash(bash ~/.claude/skills/agent-chat/send.sh:*)",
 "Bash(bash ~/.claude/skills/agent-chat/history.sh:*)",
-"Bash(bash ~/.claude/skills/agent-chat/stream.sh:*)"
+"Bash(bash ~/.claude/skills/agent-chat/wait.sh:*)"
 ```
 
 Requires `jq` and `shlock` on `PATH`. `shlock` ships with macOS at `/usr/bin/shlock`. `jq` is one `brew install jq` away.

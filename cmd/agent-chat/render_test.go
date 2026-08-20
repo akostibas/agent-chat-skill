@@ -3,7 +3,6 @@ package main
 import (
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/akostibas/agent-chat-skill/channel"
 )
@@ -105,108 +104,6 @@ func TestEmitLongSingleLineIsWrappedNotTruncated(t *testing.T) {
 	rejoined := strings.ReplaceAll(strings.ReplaceAll(out, "tester │ ", ""), "\n", " ")
 	if !strings.Contains(rejoined, "alpha beta gamma alpha") {
 		t.Errorf("content mangled:\n%s", out)
-	}
-}
-
-// senders returns the Sender field of each record, for terse debounce asserts.
-func senders(recs []channel.Record) []string {
-	var out []string
-	for _, r := range recs {
-		out = append(out, r.Sender)
-	}
-	return out
-}
-
-func timedOutLeave(name string) channel.Record {
-	return channel.Record{Sender: name, Kind: "leave", Body: channel.LeaveBodyTimedOut}
-}
-
-// A timed-out leave followed by the same peer reconnecting within the window is
-// a sleep flap: neither record should ever reach a subscriber (issue #39).
-func TestFlapDebouncerSuppressesReapThenReconnect(t *testing.T) {
-	d := newFlapDebouncer(30 * time.Second)
-	t0 := time.Unix(1000, 0)
-
-	if got := d.offer(timedOutLeave("peer"), t0); got != nil {
-		t.Fatalf("timed-out leave should be withheld, emitted %v", senders(got))
-	}
-	// Reconnect 7s later — inside the window.
-	rejoin := channel.Record{Sender: "peer", Kind: "join", Body: "reconnected"}
-	if got := d.offer(rejoin, t0.Add(7*time.Second)); got != nil {
-		t.Fatalf("reconnect should cancel the held leave, emitted %v", senders(got))
-	}
-	// Even long past the window, nothing surfaces — the leave was cancelled.
-	if got := d.expired(t0.Add(10 * time.Minute)); got != nil {
-		t.Fatalf("cancelled leave must never expire-emit, got %v", senders(got))
-	}
-}
-
-// A timed-out leave with no reconnect is a genuine departure: withheld during
-// the window, then emitted once it elapses.
-func TestFlapDebouncerEmitsGenuineDeparture(t *testing.T) {
-	d := newFlapDebouncer(30 * time.Second)
-	t0 := time.Unix(1000, 0)
-
-	if got := d.offer(timedOutLeave("gone"), t0); got != nil {
-		t.Fatalf("leave should be withheld initially, emitted %v", senders(got))
-	}
-	// Still inside the window: nothing yet.
-	if got := d.expired(t0.Add(29 * time.Second)); got != nil {
-		t.Fatalf("leave emitted before window elapsed: %v", senders(got))
-	}
-	// Window elapsed: the real departure surfaces exactly once.
-	got := d.expired(t0.Add(31 * time.Second))
-	if len(got) != 1 || got[0].Sender != "gone" || got[0].Kind != "leave" {
-		t.Fatalf("expected one leave for 'gone', got %v", got)
-	}
-	if again := d.expired(t0.Add(1 * time.Hour)); again != nil {
-		t.Fatalf("leave emitted twice: %v", senders(again))
-	}
-}
-
-// Clean leaves, ordinary messages, and joins with no pending leave are not flap
-// material and must pass straight through.
-func TestFlapDebouncerPassesThroughNonFlaps(t *testing.T) {
-	d := newFlapDebouncer(30 * time.Second)
-	now := time.Unix(1000, 0)
-
-	cases := []channel.Record{
-		{Sender: "a", Kind: "leave", Body: "left channel"},  // clean, intentional
-		{Sender: "b", Kind: "join", Body: "joined channel"}, // fresh arrival, no held leave
-		{Sender: "c", Kind: "msg", Body: "hi"},              // ordinary traffic
-	}
-	for _, r := range cases {
-		got := d.offer(r, now)
-		if len(got) != 1 || got[0].Sender != r.Sender {
-			t.Fatalf("record %+v should pass through, got %v", r, senders(got))
-		}
-	}
-}
-
-// A reconnect that arrives after the leave has already expire-emitted (peer was
-// genuinely gone longer than the window, then came back) is a real reconnect and
-// must surface — it is not cancelling anything.
-func TestFlapDebouncerReconnectAfterExpiryEmits(t *testing.T) {
-	d := newFlapDebouncer(30 * time.Second)
-	t0 := time.Unix(1000, 0)
-
-	d.offer(timedOutLeave("peer"), t0)
-	if got := d.expired(t0.Add(31 * time.Second)); len(got) != 1 {
-		t.Fatalf("departure should have emitted, got %v", senders(got))
-	}
-	// Late reconnect: the held leave is gone, so this join passes through.
-	rejoin := channel.Record{Sender: "peer", Kind: "join", Body: "reconnected"}
-	if got := d.offer(rejoin, t0.Add(40*time.Second)); len(got) != 1 || got[0].Kind != "join" {
-		t.Fatalf("late reconnect should emit as a join, got %v", got)
-	}
-}
-
-// The hold window derives from the heartbeat interval (2×), tracking the env
-// override rather than a second magic constant.
-func TestHoldWindowDerivesFromHeartbeat(t *testing.T) {
-	t.Setenv("AGENT_CHAT_HEARTBEAT_SECS", "10")
-	if got := holdWindow(); got != 20*time.Second {
-		t.Fatalf("holdWindow = %v, want 20s (2×10s)", got)
 	}
 }
 
