@@ -35,6 +35,12 @@ trap cleanup EXIT
 say "build host binary"
 go build -o "$HOST_BIN" ./cmd/agent-chat/
 
+# The peer JOINS before sending. `send --as` works without joining, but an
+# unjoined sender has no presence file, so it is not a resolvable @name — the
+# worker's directed reply gets refused and it has to fall back to a broadcast.
+say "host peer joins the channel"
+AGENT_CHAT_ROOT="$SCRATCH" "$HOST_BIN" join "$SLUG" --as "$PEER" >/dev/null
+
 # wait_for <seconds> <jq-filter-matching-a-log-record>
 wait_for() {
   local timeout="$1" filter="$2" t=0
