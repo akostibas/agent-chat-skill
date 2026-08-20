@@ -50,7 +50,7 @@ func cmdHook(args []string) {
 	// is this hook's wake detector: a gap wider than the stale window means the
 	// host slept (or the session sat idle) and every peer's heartbeat looks
 	// stale at once — reaping then would falsely evict live peers, exactly the
-	// skip RunHeartbeat's wake-aware tick performs (issue #39).
+	// skip a wake-aware heartbeat performs (issue #39).
 	gap := time.Since(info.ModTime())
 	reapOK := gap <= time.Duration(channel.StaleSecs())*time.Second
 

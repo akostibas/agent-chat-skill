@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/akostibas/agent-chat-skill/channel"
 )
@@ -201,5 +202,77 @@ func TestEnsureHookEntry(t *testing.T) {
 	pre := hooks["PreToolUse"].([]any)
 	if len(pre) != 2 {
 		t.Fatalf("foreign entry lost: %v", pre)
+	}
+}
+
+// After the host sleeps (or a session sits idle), every peer's heartbeat looks
+// stale at once. The hook fire that lands on that gap must spare them —
+// reaping there would falsely evict live peers before their own heartbeats
+// refresh (issue #39). The next normal-gap fire reaps as usual. This is the
+// wake-skip regression test; the decision lives in cmdHook (reapOK), the effect
+// in deliverChannel.
+func TestDeliverChannelSkipsReapOnWakeGap(t *testing.T) {
+	c, root := newTestChannel(t)
+	ctx := context.Background()
+	t.Setenv("AGENT_CHAT_STALE_SECS", "45")
+	if _, err := c.Join(ctx, channel.Record{Sender: "me", Kind: "join", Body: "joined channel"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Join(ctx, channel.Record{Sender: "peer", Kind: "join", Body: "joined channel"}); err != nil {
+		t.Fatal(err)
+	}
+	// The peer looks long-dead — exactly how every peer looks the instant the
+	// host resumes from sleep.
+	stale := time.Now().Add(-10 * time.Minute)
+	pres := filepath.Join(root, "test", "presence", "peer")
+	if err := os.Chtimes(pres, stale, stale); err != nil {
+		t.Fatal(err)
+	}
+
+	var out strings.Builder
+	deliverChannel(ctx, &out, c, &membership{Slug: "test", Name: "me"}, false)
+	if _, err := os.Stat(pres); err != nil {
+		t.Fatalf("wake-gap fire reaped a peer it should have spared: %v", err)
+	}
+
+	deliverChannel(ctx, &out, c, &membership{Slug: "test", Name: "me"}, true)
+	if _, err := os.Stat(pres); !os.IsNotExist(err) {
+		t.Error("normal-gap fire after the wake did not reap a still-stale peer")
+	}
+}
+
+// A live session whose presence was reaped out from under it (the wake-time
+// mass reap) reasserts itself on the next hook fire, and announces the return
+// with exactly one [join] — bare resurrection with no join is the issue #29
+// re-reap loop.
+func TestDeliverChannelSelfHealsAfterFalseReap(t *testing.T) {
+	c, root := newTestChannel(t)
+	ctx := context.Background()
+	if _, err := c.Join(ctx, channel.Record{Sender: "me", Kind: "join", Body: "joined channel"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.RemovePresence("me"); err != nil {
+		t.Fatal(err)
+	}
+
+	var out strings.Builder
+	for range 3 {
+		deliverChannel(ctx, &out, c, &membership{Slug: "test", Name: "me"}, true)
+	}
+	if _, err := os.Stat(filepath.Join(root, "test", "presence", "me")); err != nil {
+		t.Errorf("self-heal should have recreated the presence file: %v", err)
+	}
+	recs, err := c.Read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rejoins int
+	for _, r := range recs {
+		if r.Sender == "me" && r.Kind == "join" && r.Body == channel.RejoinBody {
+			rejoins++
+		}
+	}
+	if rejoins != 1 {
+		t.Errorf("expected exactly 1 rejoin [join] after a false reap, got %d", rejoins)
 	}
 }

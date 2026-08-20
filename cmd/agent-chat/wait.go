@@ -127,7 +127,7 @@ func cmdWait(args []string) {
 
 	// The doorbell carries presence while the agent idles — the fix for
 	// idle-but-open sessions being reaped (observed live in #60's testing).
-	// Refresh-only, NOT RunHeartbeat: a doorbell must never resurrect presence,
+	// Refresh-only, never EnsurePresence: a doorbell must never resurrect presence,
 	// or one left armed across a leave.sh would rejoin the peer it retired.
 	go signalHeartbeat(ctx, c, name)
 
@@ -150,7 +150,7 @@ var errRetired = fmt.Errorf("doorbell retired: peer no longer present")
 
 // signalHeartbeat keeps the peer's presence FRESH while the doorbell blocks —
 // refresh-only, so a missing presence file stays missing — and carries the
-// reap duty with the same wall-clock wake-skip as RunHeartbeat (issue #39): a
+// reap duty with the same wall-clock wake-skip the hook applies (issue #39): a
 // tick gap wider than the stale window means the host slept, and reaping then
 // would falsely evict live peers.
 func signalHeartbeat(ctx context.Context, c *channel.Channel, name string) {

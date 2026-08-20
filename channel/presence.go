@@ -116,7 +116,7 @@ func (c *Channel) RefreshPresence(name string) error {
 // resurrection with no [join] (a reaper re-announces the same departure
 // forever); pairing the re-create with a real [join] means any flapping shows
 // honest join/leave pairs, and a genuinely live peer that keeps heartbeating is
-// never reaped again in the first place. RunHeartbeat drives this.
+// never reaped again in the first place. The delivery hook drives this.
 func (c *Channel) EnsurePresence(name string) (created bool, err error) {
 	if err := os.MkdirAll(c.presDir(), 0755); err != nil {
 		return false, err
@@ -130,90 +130,6 @@ func (c *Channel) EnsurePresence(name string) (created bool, err error) {
 		return false, err
 	}
 	return true, f.Close()
-}
-
-// RunHeartbeat keeps a member present until ctx is canceled: on every
-// AGENT_CHAT_HEARTBEAT_SECS tick it reasserts its own presence (EnsurePresence)
-// and reaps any peer that has gone stale. It blocks until ctx is done, so callers
-// run it in a goroutine and own its lifetime via the context. This is the
-// canonical heartbeat loop — any long-running member (the stream runner, an
-// embedding server) should drive presence through it rather than re-implementing
-// the ticker.
-//
-// It takes the peer's identity Record (Sender, plus Cwd/Branch for the log) so it
-// can self-heal: if a tick finds its own presence file gone — reaped while the
-// host was asleep, say — it re-creates it AND posts a fresh [join] carrying that
-// Record, so a live process is never silently absent. A live peer that keeps
-// beating is never reaped, so this stays quiet in steady state; only a real
-// reap-then-survive produces an honest join/leave pair (see EnsurePresence and
-// issue #29).
-//
-// Reaping is wake-aware. When the wall clock jumps far more than one heartbeat
-// interval between ticks — the signature of the host suspending and resuming —
-// every peer's mtime looks stale at once, so reaping this tick would falsely
-// evict live peers before their own heartbeats get a chance to refresh. On such
-// a tick RunHeartbeat refreshes but skips the reap; the next normal-gap tick
-// reaps as usual, by which point live peers have re-touched and only the truly
-// dead remain stale.
-//
-// It does NOT remove presence or post a leave on exit; pair a clean shutdown with
-// RemovePresence + Leave.
-func (c *Channel) RunHeartbeat(ctx context.Context, r Record) {
-	heartbeatSecs := envInt("AGENT_CHAT_HEARTBEAT_SECS", defaultHeartbeatSecs)
-	staleSecs := envInt("AGENT_CHAT_STALE_SECS", defaultStaleSecs)
-	name := r.Sender
-	_ = c.RefreshPresence(name)
-	ticker := time.NewTicker(time.Duration(heartbeatSecs) * time.Second)
-	defer ticker.Stop()
-	// last/now are stripped of their monotonic reading (Round(0)) so the gap
-	// heartbeatTick sees is measured on the WALL clock — the same basis as the
-	// mtime-age predicate it guards. This is load-bearing on macOS: Go's
-	// monotonic clock is mach_absolute_time, which pauses across system sleep, so
-	// a monotonic gap reads ~one beat even after a 20-minute nap and the wake-skip
-	// never fires; the wall gap correctly shows the sleep and trips the skip
-	// (issue #39). The ticker itself stays monotonic on purpose — it should fire
-	// on awake-time cadence, not replay a beat per slept second.
-	last := time.Now().Round(0)
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			now := time.Now().Round(0)
-			c.heartbeatTick(r, now.Sub(last), staleSecs)
-			last = now
-		}
-	}
-}
-
-// heartbeatTick performs one beat: reassert own presence (re-announcing a
-// [join] if it had been reaped) and, unless the host just woke, reap stale
-// peers. gap is the wall-clock time since the previous tick. A gap wider than
-// the whole stale window is never a normal heartbeatSecs tick — it means the
-// clock jumped forward, i.e. the host suspended and resumed — so every peer's
-// mtime looks stale at once; reaping then would falsely evict live peers before
-// their own heartbeats refresh, so this tick skips the reap. Split out from the
-// loop so the wake-skip is deterministically testable without a controllable
-// clock.
-func (c *Channel) heartbeatTick(r Record, gap time.Duration, staleSecs int) {
-	if created, _ := c.EnsurePresence(r.Sender); created {
-		c.announceRejoin(r)
-	}
-	if gap <= time.Duration(staleSecs)*time.Second {
-		c.ReapStale(r.Sender)
-	}
-}
-
-// announceRejoin posts a [join] on behalf of a peer whose presence was recreated
-// after a reap, so the log carries an intervening arrival (see EnsurePresence).
-// Best-effort: a failed append just means the visible re-announcement is missed,
-// not that the peer is absent — its presence file already exists.
-func (c *Channel) announceRejoin(r Record) {
-	r.Kind = "join"
-	r.Body = RejoinBody
-	r.Ts = ""
-	r.Mentions = nil
-	_ = c.Append(context.Background(), r)
 }
 
 // Join atomically claims an identity on the channel and records the arrival. It

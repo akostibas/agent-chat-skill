@@ -24,6 +24,12 @@ delivery are unchanged — but see **Breaking** if you scripted around them.
   `AGENT_CHAT_FEEDBACK_RATE`, the `poll-open`/`poll-submit`/`poll-close` record
   kinds, and the `round` field on the record schema. Agents that hit friction
   with agent-chat should file a GitHub issue instead; SKILL.md says how.
+- **`channel.RunHeartbeat` is removed.** It was the resident heartbeat loop the
+  `Monitor` stream drove, and nothing drove it once the stream was deleted.
+  Presence upkeep is now the caller's, as the package doc has always said:
+  `EnsurePresence` + `ReapStale` on your own cadence (the delivery hook does
+  this per fire; the doorbell does it on a ticker). Its wake-skip regression
+  tests moved onto the hook path, where the logic actually lives.
 - **Container commit signing is bring-your-own-key only.** `GIT_SIGNING_AUTOGEN`
   and `GIT_SIGNING_KEY_TITLE` are gone, along with `bin/signing-selftest.sh`.
   Mount a key and set `GIT_SIGNING_KEY_FILE`. Autogen needed
